@@ -7,7 +7,7 @@ import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
 import jevQuestions from '../config/jev-questions.json' with { type: 'json' };
 import { validateJevContextResponse } from './jev-client.mjs';
 
-/** @typedef {{session_id:string,turn_id:string,repo_root:string,repo_revision:string,inventory:string[],
+/** @typedef {{session_id:string,turn_id:string,repo_root:string,repo_revision:string,repo_head?:string|null,inventory:string[],
  * request_hash:string,recent_requests:{text:string,hash:string}[],protected_requirements:string[],
  * context_epoch:string,permissions_hash:string,corpus_hash:string,versions:object,updated_at:string,
  * previous_state_hash:string|null,continuity:'new'|'known'|'unknown',expected_jev_model:string|null}} TaskState */
@@ -29,6 +29,7 @@ function validateContextState(state) {
   if (!state || state.schema_version !== 1 || !contextIdentityValid(state.session_id) ||
       !contextIdentityValid(state.turn_id) || typeof state.repo_root !== 'string' || !isAbsolute(state.repo_root) ||
       !['new', 'known', 'unknown'].includes(state.continuity) ||
+      (state.repo_head !== undefined && state.repo_head !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(state.repo_head)) ||
       (state.history_gap !== undefined && typeof state.history_gap !== 'boolean') ||
       (state.expected_jev_model !== undefined && state.expected_jev_model !== null &&
         (typeof state.expected_jev_model !== 'string' || !/^[A-Za-z0-9._:/-]{1,128}$/.test(state.expected_jev_model))) ||
@@ -233,7 +234,8 @@ export async function captureContextTask(input, previous) {
     ...explicitPaths.map(path => 'path:' + path), ...symbols.map(symbol => 'symbol:' + symbol),
     ...(contextExhaustive.test(input.prompt) ? ['exhaustive_coverage'] : [])])];
   const state = { schema_version: 1, session_id: input.session_id, turn_id: input.turn_id ?? randomUUID(),
-    repo_root: root, repo_revision: snapshot.repo_revision, inventory, inventory_hash: inventoryHash,
+    repo_root: root, repo_revision: snapshot.repo_revision, repo_head: snapshot.head === 'unborn' ? null : snapshot.head,
+    inventory, inventory_hash: inventoryHash,
     unreadable_paths: unreadablePaths, request_hash: contextHash(input.prompt), recent_requests: requests,
     protected_requirements: protectedRequirements, continuity, history_gap: unresolvedGap,
     expected_jev_model: previous?.expected_jev_model ?? previous?.versions.jev_model ?? null,

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { constants } from 'node:fs';
 
 const hookEvents = new Set(['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostCompact', 'SessionStart', 'SessionEnd']);
 const encodeInstallJson = value => JSON.stringify(value, null, 2) + '\n';
@@ -232,7 +233,8 @@ async function prepareContextInstall({ repo_root, source_root, action }) {
   return { hooksDir, directories, changes };
 }
 
-async function applyContextInstallChange(change) {
+/** Apply one context installation change only while its prior bytes or owned symlink still match. */
+export async function applyContextInstallChange(change) {
   if (change.kind === 'skill') {
     if (!isDeepStrictEqual(await inspectContextSkillPath(change.root), change.before)) throw new Error('Context install concurrent skill change detected.');
     if (change.after === null) await unlink(change.path);
@@ -293,6 +295,79 @@ export async function updateContextPolicyInstall(options) {
   }
 }
 
+/** Persist current qualified context promotion evidence only after recomputation; global mode remains capped.
+ * @param {{repo_root:string,report_path:string,family:string,variant:'deterministic'|'hybrid',apply:boolean}} options
+ * @returns {Promise<{changed:boolean,files:string[],error:string|null}>} */
+export async function promoteContextPolicy(options) {
+  const files = []; let lock; let lockPath; let result;
+  try {
+    if (!['code_context', 'code_review_context', 'documentation_context'].includes(options.family) ||
+        !['deterministic', 'hybrid'].includes(options.variant)) throw new Error('Context promotion family/variant rejected.');
+    const root = await realpath(options.repo_root); const directory = join(root, '.codex');
+    if (await realpath(directory) !== directory) throw new Error('Context promotion private directory rejected.');
+    const receipt = parseInstallObject((await readInstallFile(join(directory, 'codex-context-policy-install.json'))).text, null);
+    if (!receipt?.source_root) throw new Error('Context promotion requires an owned installation.');
+    const prepare = async () => {
+      const installation = await prepareContextInstall({ repo_root: root, source_root: receipt.source_root, action: 'install' });
+      const policyPath = join(directory, 'codex-context-policy.json'); const policyBefore = await readInstallFile(policyPath);
+      if ((policyBefore.mode & 0o077) !== 0) throw new Error('Context promotion policy must be private.');
+      const config = parseInstallObject(policyBefore.text, null);
+      if (!['off', 'shadow', 'enforce'].includes(config?.mode) || typeof config.jev_enabled !== 'boolean') throw new Error('Context promotion policy rejected.');
+      const file = await open(options.report_path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); let text;
+      try {
+        const stat = await file.stat();
+        if (!stat.isFile() || stat.size > 4_000_000 || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid()) throw new Error('Context promotion report must be a bounded private file.');
+        text = await file.readFile('utf8');
+        if (Buffer.byteLength(text) > 4_000_000) throw new Error('Context promotion report exceeds limit.');
+      } finally { await file.close(); }
+      const supplied = JSON.parse(text); const { comparePilotRuns, resolveContextPromotion } = await import('../src/context-promotion.mjs');
+      const report = comparePilotRuns(supplied.runs);
+      if (supplied.report_version !== 1 || supplied.corpus_hash !== report.corpus_hash) throw new Error('Context promotion corpus/version rejected.');
+      const coverage = parseInstallObject((await readInstallFile(join(directory, 'codex-context-policy-coverage.json'))).text, null);
+      if (coverage?.events?.UserPromptSubmit !== 'supported' || coverage.client_version !== report.runs[0]?.versions?.client_version)
+        throw new Error('Context promotion current native coverage is unverified.');
+      const questions = JSON.parse(await readFile(join(receipt.source_root, 'config/jev-questions.json'), 'utf8'));
+      const { readContextSourceVersions } = await import('../src/codex-context-policy.mjs');
+      const measuredVersions = report.runs[0]?.versions ?? {};
+      const versions = await readContextSourceVersions(receipt.source_root, { config, questions, input: {
+        client_version: coverage.client_version, model: measuredVersions.main_model, reasoning_effort: measuredVersions.reasoning_effort } });
+      const candidateConfig = { ...config, mode: 'enforce', jev_enabled: options.variant === 'hybrid' && config.jev_enabled,
+        operations: { ...config.operations, [options.family]: 'enforce' } };
+      if (resolveContextPromotion(candidateConfig, options.family, versions, report) !== options.variant)
+        throw new Error('Context promotion quality, usage, latency or current version criteria were not met.');
+      const reportText = encodeInstallJson(report); const reportHash = createHash('sha256').update(reportText).digest('hex');
+      const reportPath = join(directory, 'codex-context-promotion-' + options.family + '-' + options.variant + '.json');
+      const reportBefore = await readInstallFile(reportPath);
+      if ((reportBefore.mode & 0o077) !== 0) throw new Error('Context promotion stored report must be private.');
+      const nextConfig = { ...config, operations: { ...config.operations, [options.family]: 'enforce' },
+        promotions: { ...config.promotions, [options.family]: { ...config.promotions?.[options.family],
+          [options.variant]: { report_sha256: reportHash } } } };
+      const changes = [{ path: reportPath, before: reportBefore, after: reportText },
+        { path: policyPath, before: policyBefore, after: encodeInstallJson(nextConfig) }].filter(change => change.before.text !== change.after);
+      return { changes, hooksDir: installation.hooksDir };
+    };
+    const preview = await prepare();
+    if (!options.apply || !preview.changes.length) return result = { changed: preview.changes.length > 0, files: preview.changes.map(change => change.path), error: null };
+    lockPath = join(preview.hooksDir, '.codex-context-policy-install.lock'); lock = await open(lockPath, 'wx', 0o600);
+    const plan = await prepare();
+    for (const change of plan.changes) { await applyContextInstallChange(change); files.push(change.path); }
+    return result = { changed: files.length > 0, files, error: null };
+  } catch (error) {
+    return result = { changed: files.length > 0, files, error: error instanceof SyntaxError
+      ? 'Context promotion malformed private data rejected; configuration preserved.'
+      : error.code ? 'Context promotion private file or lock unavailable; configuration preserved.' : error.message };
+  } finally {
+    if (lock) {
+      try { await lock.close(); }
+      catch { result.error = [result.error, 'Context promotion lock close failed: ' + lockPath].filter(Boolean).join(' '); }
+      try { await unlink(lockPath); }
+      catch (error) {
+        if (error.code !== 'ENOENT') result.error = [result.error, 'Context promotion lock release failed: ' + lockPath].filter(Boolean).join(' ');
+      }
+    }
+  }
+}
+
 const installEntryPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;
 if (installEntryPath && import.meta.url === pathToFileURL(installEntryPath).href) {
   const args = process.argv.slice(2);
@@ -304,10 +379,18 @@ if (installEntryPath && import.meta.url === pathToFileURL(installEntryPath).href
     const flag = args.shift();
     if (flag === '--apply') options.apply = true;
     else if (flag === '--configure-jev' && !configureJev) configureJev = true;
-    else if (['--repo', '--source'].includes(flag) && args.length) options[flag === '--repo' ? 'repo_root' : 'source_root'] = args.shift();
+    else if (['--repo', '--source', '--report', '--family', '--variant'].includes(flag) && args.length) {
+      const keys = { '--repo': 'repo_root', '--source': 'source_root', '--report': 'report_path', '--family': 'family', '--variant': 'variant' };
+      options[keys[flag]] = args.shift();
+    }
     else valid = false;
   }
-  if (!valid || !options.repo_root || !options.source_root || (configureJev && action !== 'install')) {
+  if (action === 'promote' && valid && options.repo_root && options.report_path && options.family && options.variant &&
+      !options.source_root && !configureJev) {
+    const result = await promoteContextPolicy(options);
+    process.stdout.write(encodeInstallJson(result)); process.exitCode = result.error ? 1 : 0;
+  } else if (!valid || !options.repo_root || !options.source_root || (configureJev && action !== 'install') ||
+      options.report_path || options.family || options.variant) {
     process.stderr.write('Context installer: install|remove --repo PATH --source PATH [--apply] [--configure-jev].\n');
     process.exitCode = 1;
   } else if (configureJev && options.apply && !process.stdin.isTTY) {

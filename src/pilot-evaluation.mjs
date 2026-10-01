@@ -1,10 +1,11 @@
 import { readFile, mkdir, readdir, writeFile, rename, unlink, open, realpath } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, constants } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+export { comparePilotRuns, resolveContextPromotion } from './context-promotion.mjs';
 
 const usageFields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'];
 const unknownCodexUsage = () => Object.fromEntries([['available', false], ...usageFields.map(field => [field, null])]);
@@ -202,11 +203,25 @@ if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath
   try {
     while (args.length) {
       const flag = args.shift();
-      if (!['--transcript', '--client-version', '--tasks', '--repo', '--variant', '--decisions'].includes(flag) || !args.length || options[flag]) throw new Error('Pilot evaluation CLI arguments invalid');
+      if (!['--transcript', '--client-version', '--tasks', '--repo', '--variant', '--decisions', '--runs', '--task', '--admission'].includes(flag) || !args.length || options[flag]) throw new Error('Pilot evaluation CLI arguments invalid');
       options[flag] = args.shift();
     }
     let result;
-    if (command === 'usage' && options['--transcript'] && options['--client-version']) {
+    if (command === 'trial' && options['--tasks'] && (options['--admission'] ||
+        options['--repo'] && options['--task'] && options['--variant'])) {
+      const chunks = []; let bytes = 0;
+      for await (const chunk of process.stdin) {
+        bytes += chunk.length;
+        if (bytes > 1_000_000) throw new Error('Context trial input exceeds limit.');
+        chunks.push(chunk);
+      }
+      const input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
+      const { handleContextTrial } = await import('./context-trial.mjs');
+      const handled = await handleContextTrial(input, { tasks: options['--tasks'], admission: options['--admission'] ??
+        join(resolve(options['--repo']), '.codex/codex-context-trial.json'),
+        task: options['--task'], variant: options['--variant'], repo: options['--repo'] });
+      process.stdout.write(handled.stdout); process.stderr.write(handled.stderr); process.exitCode = handled.exit_code;
+    } else if (command === 'usage' && options['--transcript'] && options['--client-version']) {
       const measured = await readCodexTranscript(options['--transcript'], options['--client-version']);
       result = { ...measured.usage, measurement_scope: 'session', worker_coverage_verified: false };
       if (measured.trailingIncomplete) process.stderr.write('Codex usage: ignored incomplete final line.\n');
@@ -216,6 +231,20 @@ if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath
       const text = await readFile(options['--decisions'], 'utf8');
       result = collectJevUsage(text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)));
       if (!result.available) { process.stderr.write('Jev usage: missing or inconsistent billing; totals unknown.\n'); process.exitCode = 1; }
+    } else if (command === 'report' && options['--runs'] && options['--tasks']) {
+      const tasksText = await readFile(options['--tasks'], 'utf8');
+      const canonicalText = await readFile(new URL('../evaluation/tasks.jsonl', import.meta.url), 'utf8');
+      if (tasksText !== canonicalText) throw new Error('Pilot report requires the exact versioned corpus.');
+      const file = await open(options['--runs'], constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); let text;
+      try {
+        const stat = await file.stat();
+        if (!stat.isFile() || stat.size > 4_000_000 || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0)
+          throw new Error('Pilot report requires a bounded private run file.');
+        text = await file.readFile('utf8');
+        if (Buffer.byteLength(text) > 4_000_000) throw new Error('Pilot report run file exceeds limit.');
+      } finally { await file.close(); }
+      const { comparePilotRuns } = await import('./context-promotion.mjs');
+      result = comparePilotRuns(text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)));
     } else if (command === 'corpus' && options['--tasks']) {
       const text = await readFile(options['--tasks'], 'utf8');
       result = validatePilotCorpus(text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)));
@@ -223,10 +252,15 @@ if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath
     } else if (command === 'fixture' && options['--repo']) {
       result = await materializePilotFixture(options['--repo'], options['--variant'] ?? 'baseline');
     } else throw new Error('Pilot evaluation CLI: usage, corpus, or fixture arguments required');
-    process.stdout.write(JSON.stringify(result) + '\n');
+    if (command !== 'trial') process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) {
+    if (command === 'trial') {
+      process.stderr.write('Context trial rejected; baseline retained.\n');
+      process.exitCode = 0;
+    } else {
     process.stderr.write('Pilot evaluation failed: ' + (error instanceof SyntaxError ? 'Malformed JSON input.' : error.message) + '\n');
     process.stdout.write(JSON.stringify(command === 'jev-usage' ? unknownJevUsage() : command === 'usage' ? { ...unknownCodexUsage(), measurement_scope: 'session', worker_coverage_verified: false } : { valid: false, errors: ['Input rejected.'] }) + '\n');
     process.exitCode = 1;
+    }
   }
 }
