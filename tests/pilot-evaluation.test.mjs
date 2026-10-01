@@ -45,6 +45,23 @@ test('usage_totals_and_corpus', () => {
   assert.equal(validatePilotCorpus([{ ...task('one', 'A'), required_evidence: ['../secret'] }]).valid, false);
 });
 
+// The observed CLI version must measure its matching envelope while unknown versions abstain.
+test('observed_cli_01593_usage_remains_version_limited', async () => {
+  assert.equal(collectCodexUsage([event(80), event(80), event(130)], '0.159.3').total_tokens, 150);
+  const root = await mkdtemp(join(tmpdir(), 'context-usage-01593-'));
+  const path = join(root, 'session.jsonl');
+  const lines = [{ type: 'session_meta', payload: { id: 'main', cli_version: '0.159.3' } },
+    ...[80, 80, 130].map(input => ({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage(input) } } }))];
+  await writeFile(path, lines.map(value => JSON.stringify(value)).join('\n') + '\n');
+  const run = version => spawnSync(process.execPath, [resolve('src/pilot-evaluation.mjs'), 'usage', '--transcript', path, '--client-version', version], { encoding: 'utf8' });
+  const measured = run('0.159.3');
+  assert.equal(measured.status, 0);
+  assert.equal(JSON.parse(measured.stdout).total_tokens, 150);
+  assert.equal(JSON.parse(measured.stdout).worker_coverage_verified, false);
+  assert.equal(run('0.159.2').status, 1);
+  assert.equal(collectCodexUsage([event(80)], '0.159.4').total_tokens, null);
+});
+
 // CLI must report unknown instead of printing source content or guessing client versions.
 test('transcript_reader_recovers_trailing_line_and_rejects_corruption', async () => {
   const root = await mkdtemp(join(tmpdir(), 'context-usage-'));

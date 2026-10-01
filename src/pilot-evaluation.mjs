@@ -13,7 +13,7 @@ const fixturePath = new URL('../evaluation/pilot-fixture.json', import.meta.url)
 
 /** Collect cumulative token usage for supplied thread epochs; task/worker coverage is separate. */
 export function collectCodexUsage(events, clientVersion) {
-  if (clientVersion !== '0.159.2' || !Array.isArray(events) || events.length === 0) return unknownCodexUsage();
+  if (!['0.159.2', '0.159.3'].includes(clientVersion) || !Array.isArray(events) || events.length === 0) return unknownCodexUsage();
   const snapshots = new Map();
   for (const event of events) {
     if (!event || [event.session_id, event.thread_id, event.counter_epoch].some(id => typeof id !== 'string' || !id)) return unknownCodexUsage();
