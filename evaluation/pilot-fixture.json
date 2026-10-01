@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "files": {
+    "AGENTS.md": "# Fixture Instructions\n\nPreserve literal-search semantics and original check exit codes. Inspect direct callers before changing label normalization.\n",
+    "README.md": "# Issue Reports\n\nRun `npm test` for declared checks. See [labels](docs/labels.md) and [usage](docs/usage.md).\n",
+    "package.json": "{\n  \"name\": \"pilot-issue-reports\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"packageManager\": \"npm@11.0.0\",\n  \"scripts\": {\n    \"test\": \"node --test tests/*.test.mjs\",\n    \"check:failure\": \"node scripts/fail-check.mjs\"\n  }\n}\n",
+    "package-lock.json": "{\n  \"name\": \"pilot-issue-reports\",\n  \"lockfileVersion\": 3,\n  \"packages\": {\n    \"\": {\n      \"name\": \"pilot-issue-reports\"\n    }\n  }\n}\n",
+    "src/label-policy.mjs": "/** Normalize a display label to a lowercase hyphenated identifier. */\nexport function normalizeLabel(label) {\n  return String(label ?? '').trim().toLowerCase().replace(/\\s+/g, '-') || 'unlabeled';\n}\n",
+    "src/issue-summary.mjs": "import { normalizeLabel } from './label-policy.mjs';\n/** Build a stable public issue summary. */\nexport function buildIssueSummary(issue) { return { id: issue.id, label: normalizeLabel(issue.label) }; }\n",
+    "src/issue-report.mjs": "import { buildIssueSummary } from './issue-summary.mjs';\n/** Report summaries for open issues only. */\nexport function summarizeIssues(issues) { return issues.filter(issue => issue.state === 'open').map(buildIssueSummary); }\n",
+    "src/issue-search.mjs": "/** Find literal substrings; punctuation is never a regular expression. */\nexport function findIssues(issues, query) { return issues.filter(issue => String(issue.label).includes(query)); }\n",
+    "src/legacy-report.mjs": "import { buildIssueSummary } from './issue-summary.mjs';\nexport function exportLegacyIssue(issue) { return buildIssueSummary(issue); }\n",
+    "src/report-loader.mjs": "/** Load a caller-selected module; static text cannot prove all runtime dependencies. */\nexport async function loadReport(modulePath) { return import(modulePath); }\n",
+    "src/obsolete-report.mjs": "export const obsoleteReport = 'legacy-only';\n",
+    "src/entrypoint.mjs": "import { summarizeIssues } from './issue-report.mjs';\nexport const publicReport = summarizeIssues;\n",
+    "docs/labels.md": "# Label Policy\n\nWhitespace becomes hyphens, identifiers are lowercase, and empty labels use `unlabeled`. Related callers: issue-summary and issue-report.\n",
+    "docs/usage.md": "# Usage\n\nOnly open issues appear in `summarizeIssues`. `findIssues` searches literal substrings. [Label policy](labels.md).\n",
+    "docs/review.md": "# Review Notes\n\nReview staged, unstaged, untracked, renamed, and deleted entries. Dynamic imports require broader investigation.\n",
+    "docs/Unicode ☃.md": "# Unicode Paths\n\nThis English document has a Unicode filename for exact provenance checks.\n",
+    "notes/line\nbreak.txt": "Filename contains a newline; preserve Git inventory boundaries.\n",
+    "scripts/fail-check.mjs": "for (let index = 0; index < 800; index++) process.stderr.write('Required check failed: ' + index + ' ☃\\n');\nprocess.exitCode = 7;\n",
+    "tests/label-policy.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { normalizeLabel } from '../src/label-policy.mjs';\ntest('normalize labels and preserve empty fallback', () => { assert.equal(normalizeLabel(' High Priority '), 'high-priority'); assert.equal(normalizeLabel(' '), 'unlabeled'); });\n",
+    "tests/issue-report.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { summarizeIssues } from '../src/issue-report.mjs';\ntest('only open issue summaries', () => { assert.deepEqual(summarizeIssues([{id:1,label:'Open',state:'open'},{id:2,label:'Closed',state:'closed'}]), [{id:1,label:'open'}]); });\n",
+    "tests/issue-search.test.mjs": "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { findIssues } from '../src/issue-search.mjs';\ntest('search punctuation literally', () => { assert.deepEqual(findIssues([{id:1,label:'a.b'},{id:2,label:'axb'}], '.'), [{id:1,label:'a.b'}]); });\n"
+  },
+  "archive_count": 512,
+  "changes": {
+    "staged": {
+      "src/label-policy.mjs": "/** Normalize a display label to a lowercase hyphenated identifier. */\nexport function normalizeLabel(label) {\n  return String(label ?? '').trim().toLowerCase().replace(/\\s+/g, '-');\n}\n"
+    },
+    "unstaged": {
+      "src/issue-search.mjs": "/** Find literal substrings; punctuation is never a regular expression. */\nexport function findIssues(issues, query) { return issues.filter(issue => new RegExp(query).test(String(issue.label))); }\n"
+    },
+    "untracked": {
+      "src/new-report.mjs": "export const newReport = 'untracked';\n"
+    },
+    "renamed": {
+      "src/legacy-report.mjs": "src/export-report.mjs"
+    },
+    "deleted": [
+      "src/obsolete-report.mjs"
+    ]
+  }
+}

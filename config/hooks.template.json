@@ -1,0 +1,74 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__NODE__ __POLICY__ hook",
+            "timeout": 3,
+            "additionalContextLimit": 2000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__NODE__ __POLICY__ hook",
+            "timeout": 3
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__NODE__ __POLICY__ hook",
+            "timeout": 3
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__NODE__ __POLICY__ hook",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__NODE__ __POLICY__ hook",
+            "timeout": 3,
+            "additionalContextLimit": 2000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__NODE__ __POLICY__ hook",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

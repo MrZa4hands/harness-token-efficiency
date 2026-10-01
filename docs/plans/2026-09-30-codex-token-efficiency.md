@@ -10,7 +10,7 @@
 
 **Spec:** [Pilot specification](../codex-token-efficiency-spec.md), R1–R8 and phases 0–4. Also read [AGENTS.md](../../AGENTS.md), [README.md](../../README.md), and [research](../codex-token-efficiency-proposal.md).
 
-**Status:** Prepared on 2026-09-30; awaiting Roe's plan review and execution-method selection. Preparing this document does not start implementation, installation, or paid inference.
+**Status:** Roe authorized implementation on 2026-10-01. Native inline execution selected; phase 0A/0B deliverables pass with partial, explicitly limited coverage. Native policy trust and the off-mode trial are verified. PR #1 targets develop; both required review stages completed, all confirmed findings were corrected, and release documentation is available. Delivery and safe cleanup follow the closeout below; no optimizer operation is activated. Evidence: [phase 0 validation](../validation/phase-0.md).
 
 **read_when:** Before implementing a phase, opening its PR, or resuming after compaction.
 
@@ -41,7 +41,7 @@
 
 ## Verified Preparation and Prerequisites
 
-Repository update, 2026-10-01: Roe requested removal of the parent Git metadata and initialization here. The repository root is now `/Users/mrz/Documents/Roe/tools/LifeOS/codex-token-efficiency`; the old `.git` is in Trash. This new repository starts on `main` without a remote or `develop`. Do not reuse the former upstream or its SHA as this repository's base.
+Repository update, 2026-10-01: Roe requested removal of the parent Git metadata and initialization here. The repository root is now `/Users/mrz/Documents/Roe/tools/LifeOS/codex-token-efficiency`; the old `.git` is in Trash. The new repository initially had main only; Roe subsequently established develop and the authorized independent remote. Phase 0 starts from `f416fd89797281294c08e0062d95c5aeeba17880`. Do not reuse the former upstream or its SHA as this repository's base.
 
 Historical read-only checks at the start of the planning session, 2026-09-30; these describe the former parent repository:
 
@@ -56,7 +56,7 @@ Historical read-only checks at the start of the planning session, 2026-09-30; th
 | Candidate usage source | Local `event_msg` → `token_count` → `info.total_token_usage` records, located without exposing conversations |
 | Required review/documentation skills | Their exact AGENTS.md paths exist |
 
-**Execution prerequisite:** Establish Roe's intended `develop` branch in this independent repository and verify its authorized delivery remote/write access. Do not invent `develop` from `main`, assume a remote, or import the former parent's history to bypass this prerequisite. Documentation preparation can proceed.
+**Execution prerequisite, satisfied for phase 0:** Roe's intended develop branch and independent remote/write access were verified. Refresh and verify develop again before every subsequent phase; never import the former parent's history or substitute a base branch.
 
 Before phase 0, ensure the selected `develop` makes the specification, instructions, and this plan available. If absent, transfer only explicitly authorized documentation, preserving unrelated commits. Installed CLI support does not prove hooks run in the current interface; 0A must establish that.
 
@@ -119,16 +119,16 @@ Branch `feat/codex-token-efficiency-phase-0`. Deliver installation in off, actua
 
 **Interfaces:** Produce `readContextPolicyConfig(repoRoot: string): Promise<ContextPolicyConfig>`; `handleCodexHook(input: CodexHookInput): Promise<{stdout:string,stderr:string,exit_code:number}>`; `updateContextPolicyInstall({repo_root:string,source_root:string,action:'install'|'remove',apply:boolean}): Promise<{changed:boolean,files:string[],error:string|null}>`. Management CLI: `install|remove --repo <path> --source <module-path> [--apply]`; default is a reviewable dry-run.
 
-- [ ] **RED: `off_and_additive_install`.** Temporary repo with an existing write guard: install twice, then remove; preserve foreign entries/order and other configuration. Existing malformed JSON is rejected without byte changes. Missing/invalid config is off; off performs no network, Git, or rg work.
+- [x] **RED: `off_and_additive_install`.** Temporary repo with an existing write guard: install twice, then remove; preserve foreign entries/order and other configuration. Existing malformed JSON is rejected without byte changes. Missing/invalid config is off; off performs no network, Git, or rg work.
   ```js
   assert.deepEqual(afterRemoval.hooks, original.hooks);
   assert.equal(secondInstall.changed, false);
   assert.deepEqual(await handleCodexHook(offInput), {stdout: '', stderr: '', exit_code: 0});
   ```
-- [ ] **Observe RED:** `rtk proxy node --test --test-name-pattern='off_and_additive_install' tests/hook-installation.test.mjs` → behavioral assertion failure; record the exact failure.
-- [ ] **Implement:** read config on every invocation; template `{"mode":"off","jev_enabled":true}`. Register UserPromptSubmit, PreToolUse for Bash, observational PostToolUse, PostCompact, and SessionStart/End only where client coverage is verified. Handler timeout 3; context limit 2000. Quote absolute Node/source paths safely; atomic writes and pre-write comparison preserve concurrent changes. Identify only owned entries; never bypass or fabricate native hook trust.
-- [ ] **GREEN and real integration:** repeat test → PASS. Management dry-run shows the delta; trial installation undergoes native trust in the current interface. Record a synthetic pre-prompt marker, direct/nested calls, local/hosted MCP coverage, persistent commands, compaction, and resume. Marker belongs only to the compatibility test. Matrix: `supported|unsupported|unverified`; unsupported/unverified paths remain disabled. CLI support/version alone is insufficient.
-- [ ] **Commit:** stage only this task's files; `feat: add project Codex hook registration in off mode`. Detailed body: verified contract, hook preservation, tests, outstanding coverage.
+- [x] **Observe RED:** `rtk proxy node --test --test-name-pattern='off_and_additive_install' tests/hook-installation.test.mjs` → behavioral assertion failure; record the exact failure.
+- [x] **Implement:** read config on every invocation; template `{"mode":"off","jev_enabled":true}`. Register UserPromptSubmit, PreToolUse for Bash, observational PostToolUse, PostCompact, and SessionStart/End only where client coverage is verified. Handler timeout 3; context limit 2000. Quote absolute Node/source paths safely; atomic writes and pre-write comparison preserve concurrent changes. Identify only owned entries; never bypass or fabricate native hook trust.
+- [x] **GREEN and real integration:** repeat test → PASS. Management dry-run shows the delta; trial installation undergoes native trust in the current interface. Record a synthetic pre-prompt marker, direct/nested calls, local/hosted MCP coverage, persistent commands, compaction, and resume. Marker belongs only to the compatibility test. Matrix: `supported|unsupported|unverified`; unsupported/unverified paths remain disabled. CLI support/version alone is insufficient.
+- [x] **Commit:** stage only this task's files; `feat: add project Codex hook registration in off mode`. Detailed body: verified contract, hook preservation, tests, outstanding coverage.
 
 ### Task 0B: Real Usage, Evaluation Corpus, and Gate
 
@@ -136,16 +136,16 @@ Branch `feat/codex-token-efficiency-phase-0`. Deliver installation in off, actua
 
 **Interfaces:** Consume the observed source from 0A. Produce `collectCodexUsage(events: object[], clientVersion: string): {available:boolean,input_tokens:number|null,cached_input_tokens:number|null,cache_write_input_tokens:number|null,output_tokens:number|null,reasoning_output_tokens:number|null,total_tokens:number|null}` and `validatePilotCorpus(tasks: object[]): {valid:boolean,errors:string[]}`. Each normalized event carries source thread/session and counter epoch. CLI: `rtk proxy node src/pilot-evaluation.mjs usage --transcript <path> --client-version <version>`; `corpus --tasks evaluation/tasks.jsonl`.
 
-- [ ] **RED: `usage_totals_and_corpus`.** Cumulative 100, duplicate 100, 150 → 150. Output 20 including reasoning 5 → 20, not 25. Separate workers/threads and verified counter resets; trailing incomplete line is recoverable, unsupported/corrupt usage is unknown with diagnostics. Reject a conversation appearing in both tuning and held-out sets.
+- [x] **RED: `usage_totals_and_corpus`.** Cumulative 100, duplicate 100, 150 → 150. Output 20 including reasoning 5 → 20, not 25. Separate workers/threads and verified counter resets; trailing incomplete line is recoverable, unsupported/corrupt usage is unknown with diagnostics. Reject a conversation appearing in both tuning and held-out sets.
   ```js
   assert.equal(collectCodexUsage(events, '0.159.2').total_tokens, 150);
   assert.equal(collectCodexUsage(events, 'unknown').available, false);
   assert.equal(validatePilotCorpus(overlappingConversations).valid, false);
   ```
-- [ ] **Observe RED:** `rtk proxy node --test --test-name-pattern='usage_totals_and_corpus' tests/pilot-evaluation.test.mjs` → assertion failure for totals, version, or split.
-- [ ] **Implement:** read-only adapter limited to observed version/shape; local `event_msg/token_count/info.total_token_usage` is a candidate, not a universal contract. Read usage/identity without exporting transcripts. Deduplicate cumulative counters per thread, add verified reset epochs, never convert unknown to zero. No extra server. Gate runs node --check on .mjs, node --test, JSON/JSONL parsing, relative-document links, and source-scope checks. External linter/typechecker are not applicable without existing configuration; do not add dependencies to simulate them.
-- [ ] **GREEN and baseline:** tests PASS; gate exit 0. Create **60 held-out tasks**: 10 each for code analysis, review, documentation, checks, short follow-ups, and exhaustive requests; include large repos and indirect dependencies. Add tuning conversations separately. Each case fixes initial revision, deidentified prompt, expected checks, required evidence, and verifiable outcome. Sensitive real cases stay private/local. Validate actual-interface task totals including workers; incomplete measurement permits indicators, not promotion.
-- [ ] **Commit:** `feat: add versioned Codex usage measurement and pilot cases`. Complete phase 0's PR lifecycle before phase 1.
+- [x] **Observe RED:** `rtk proxy node --test --test-name-pattern='usage_totals_and_corpus' tests/pilot-evaluation.test.mjs` → assertion failure for totals, version, or split.
+- [x] **Implement:** read-only adapter limited to observed version/shape; local `event_msg/token_count/info.total_token_usage` is a candidate, not a universal contract. Read usage/identity without exporting transcripts. Deduplicate cumulative counters per thread, add verified reset epochs, never convert unknown to zero. No extra server. Gate runs node --check on .mjs, node --test, JSON/JSONL parsing, relative-document links, and source-scope checks. External linter/typechecker are not applicable without existing configuration; do not add dependencies to simulate them.
+- [x] **GREEN and baseline:** tests PASS; gate exit 0. Create **60 held-out tasks**: 10 each for code analysis, review, documentation, checks, short follow-ups, and exhaustive requests; include large repos and indirect dependencies. Add tuning conversations separately. Each case fixes initial revision, deidentified prompt, expected checks, required evidence, and verifiable outcome. Sensitive real cases stay private/local. Validate actual-interface task totals including workers; incomplete measurement permits indicators, not promotion.
+- [x] **Commit:** `feat: add versioned Codex usage measurement and pilot cases`. Complete phase 0's PR lifecycle before phase 1.
 
 ## Phase 1 — Rules and Jev in Shadow
 
@@ -338,6 +338,6 @@ Traceability: R1 → 0A/2B; R2 → 2B; R3 → 1A/1B; R4 → 0B/2A/3A/4A; R5 → 
 
 ## Handoff
 
-Await Roe's review and execution-method choice. Recommend **native execution** with `superpowers:executing-plans` because tasks share sequential interfaces and each PR has exactly two mandated review stages. If Roe chooses subagents, preserve that choice while omitting extra independent review gates; wait for all agents before yielding.
+Roe authorized implementation. Use **native execution** with `superpowers:executing-plans`; tasks share sequential interfaces and each PR has exactly two mandated review stages. If Roe chooses subagents, preserve that choice while omitting extra independent review gates; wait for all agents before yielding.
 
 Before implementation: reviewed plan, selected method, valid develop/delivery remote, and phase 0 opening checks. Planning changes only this document and its README entry; no implementation, branch changes, hook installation, credentials, or Jev inference.
