@@ -60,7 +60,7 @@ export async function readContextSourceVersions(sourceRoot, { input, config, que
   const sources = await Promise.all(['codex-context-policy.mjs', 'context-state.mjs', 'jev-client.mjs', 'context-credentials.mjs',
     'repository-context.mjs', 'context-results.mjs', 'context-prefetch.mjs', 'context-promotion.mjs']
     .map(path => readFile(join(sourceRoot, 'src', path), { encoding: 'utf8', signal })));
-  return { client_version: typeof clientVersion === 'string' && /^\d+\.\d+\.\d+$/.test(clientVersion) ? clientVersion : 'unverified',
+  return { client_version: ['0.159.2', '0.159.3'].includes(clientVersion) ? clientVersion : 'unverified',
     main_model: typeof input.model === 'string' && /^[A-Za-z0-9._:/-]{1,128}$/.test(input.model) ? input.model : 'unverified',
     reasoning_effort: typeof effort === 'string' && /^[a-z_-]{1,32}$/.test(effort) ? effort : 'unverified',
     jev_model: config.jev_actual_model ?? null, jev_requested_model: config.jev_model ?? null, config_revision: config.config_revision,

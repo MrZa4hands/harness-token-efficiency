@@ -105,6 +105,29 @@ test('scratch_cleanup_preserves_cancellation_and_original_errors', async () => {
   } finally { childProcess.execFile = originalExecFile; syncBuiltinESMExports(); }
 });
 
+// Diagnostic bytes must not replace the failing Git process's original exit code.
+test('repository_git_failure_preserves_non_utf8_diagnostics', async () => {
+  const { root } = await createBoundaryRepository('binary-diagnostics-');
+  await writeFile(join(root, 'entry.mjs'), 'export const value = 2;\n');
+  const state = await captureContextTask({ cwd: root, session_id: 'binary-diagnostics', turn_id: 'binary-turn',
+    hook_event_name: 'UserPromptSubmit', prompt: 'Review all changes.', permission_mode: 'read-only' }, null);
+  const bytes = Buffer.from('64696167ff0a', 'hex');
+  const original = childProcess.execFile; const execute = promisify(original);
+  const boundary = (...args) => original(...args);
+  boundary[promisify.custom] = (file, args, options) => file === 'git' && args.includes('--no-index')
+    ? execute(process.execPath, ['-e', 'process.stderr.write(Buffer.from("64696167ff0a","hex"));process.exit(7)'], options)
+    : execute(file, args, options);
+  childProcess.execFile = boundary; syncBuiltinESMExports();
+  try {
+    const operations = await import('../src/repository-context.mjs?binary-diagnostic-boundary');
+    const result = await operations.getRepositoryChanges({ repo_root: root, request_hash: state.request_hash,
+      repo_revision: state.repo_revision, context_epoch: state.context_epoch, scope: { kind: 'worktree' }, byte_limit: 8000 });
+    assert.equal(result.status, 'error'); assert.equal(result.exit_code, 7, 'Invalid UTF-8 diagnostics must preserve the original failure');
+    assert.match(result.stderr, /^Repository context stderr \(base64\): /);
+    assert.deepEqual(Buffer.from(result.stderr.split(': ')[1], 'base64'), bytes);
+  } finally { childProcess.execFile = original; syncBuiltinESMExports(); }
+});
+
 // Native private footprint without Git ignore rules must not leak through automatic evidence selection.
 test('owned_runtime_is_private_but_explicit_and_foreign_evidence_remains_available', async () => {
   const { root, git } = await createBoundaryRepository('runtime-evidence-');

@@ -18,7 +18,7 @@ function pilotVersionFingerprint(versions, variant) {
   const fields = ['client_version', 'policy_hash', 'main_model', 'reasoning_effort'];
   if (variant === 'hybrid') fields.push('questions_hash', 'jev_model');
   if (!versions || !fields.every(key => typeof versions[key] === 'string' && versions[key] && versions[key] !== 'unverified') ||
-      !/^\d+\.\d+\.\d+$/.test(versions.client_version) || !/^[a-f0-9]{64}$/.test(versions.policy_hash) ||
+      !['0.159.2', '0.159.3'].includes(versions.client_version) || !/^[a-f0-9]{64}$/.test(versions.policy_hash) ||
       (variant === 'hybrid' && !/^[a-f0-9]{64}$/.test(versions.questions_hash))) return null;
   return hash(JSON.stringify(fields.map(key => [key, versions[key]])));
 }

@@ -20,6 +20,19 @@ function measuredRuns() {
   return createContextPilotRuns(versions);
 }
 
+// Unknown native usage contracts cannot qualify an otherwise favorable paired experiment.
+test('context_promotion_requires_supported_client_usage_contract', async () => {
+  const unsupported = { ...versions, client_version: '0.999.0' };
+  const report = comparePilotRuns(createContextPilotRuns(unsupported));
+  assert.equal(report.promotions.length, 0, 'Unsupported clients must never grant promotion');
+  const config = { mode: 'enforce', jev_enabled: false, operations: { code_context: 'enforce' } };
+  assert.equal(resolveContextPromotion(config, 'code_context', unsupported, report), 'shadow');
+  const source = await readContextSourceVersions(fileURLToPath(new URL('../', import.meta.url)), {
+    input: { client_version: unsupported.client_version, model: versions.main_model, reasoning_effort: versions.reasoning_effort },
+    config: { mode: 'shadow', jev_enabled: false }, questions: {} });
+  assert.equal(source.client_version, 'unverified', 'Source identity must abstain outside observed native versions');
+});
+
 // Trusting a summary, missing billing, unmatched tasks or worse quality would activate unproven savings.
 test('context_promotion_recomputes_paired_evidence', () => {
   const runs = measuredRuns(); const report = comparePilotRuns(runs);

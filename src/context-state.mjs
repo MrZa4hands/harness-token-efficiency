@@ -144,13 +144,13 @@ export async function captureRepositorySnapshot(repoRoot, signal = AbortSignal.t
   const excludes = await runContextGit('git', ['config', '--path', '--get', 'core.excludesFile'],
     { cwd: root, env: { ...environment, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL }, encoding: 'buffer',
       maxBuffer: 32000, timeout: 1800, signal }).catch(error => { if (error.code === 1) return null; throw error; });
-  const excludesArgs = excludes ? ['-c', 'core.excludesFile=' + new TextDecoder('utf-8', { fatal: true }).decode(excludes.stdout).replace(/\n$/, '')] : [];
+  const excludesArgs = excludes ? ['-c', 'core.excludesFile=' + new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(excludes.stdout).replace(/\n$/, '')] : [];
   const git = async args => {
     checkDeadline();
     try {
       const result = await runContextGit('git', ['-c', 'core.fsmonitor=false', ...excludesArgs, ...args],
         { cwd: root, env: environment, encoding: 'buffer', maxBuffer: 1_000_000, timeout: Math.max(1, 1800 - (Date.now() - started)), signal });
-      return new TextDecoder('utf-8', { fatal: true }).decode(result.stdout);
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(result.stdout);
     } catch (error) { throw new Error('Context inventory Git failed; baseline retained.', { cause: { code: error.code ?? 'invalid-output' } }); }
   };
   if ((await realpath((await git(['rev-parse', '--show-toplevel'])).trim())) !== root) throw new Error('Context repository root rejected; baseline retained.');

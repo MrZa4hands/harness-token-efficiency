@@ -15,6 +15,50 @@ after(() => assert.equal(spawnSync('trash', [temporaryRoot]).status, 0));
 const gitEnvironment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
   GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 
+// The first Git inventory filename may itself begin with a byte order mark.
+test('context_inventory_preserves_leading_bom_filename', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'bom-path-'));
+  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
+  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
+  const path = '\uFEFFbom.mjs'; await writeFile(join(root, path), 'export const value = 1;\n');
+  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: exact filename']);
+  const snapshot = await captureRepositorySnapshot(root);
+  assert.deepEqual(snapshot.inventory, [path], 'Git inventory decoding must preserve the exact filename');
+  assert.equal(snapshot.unreadable_paths.length, 0);
+});
+
+// UTF-8 decoding must preserve the BOM and CRLF bytes in direct and expanded evidence.
+test('context_evidence_preserves_bom_in_worktree_range_and_continuation', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'bom-evidence-'));
+  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
+  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
+  const bytes = Buffer.from('\uFEFFexport const byteOrderMark = 1;\r\n' + '// preserved\r\n'.repeat(100));
+  await writeFile(join(root, 'bom.mjs'), bytes);
+  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: exact BOM']);
+  const head = git(['rev-parse', 'HEAD']).toString().trim();
+  const state = await captureContextTask({ cwd: root, session_id: 'bom-session', turn_id: 'bom-turn',
+    hook_event_name: 'UserPromptSubmit', prompt: 'Explain bom.mjs.', permission_mode: 'read-only' }, null);
+  const stateDir = join(temporaryRoot, 'bom-state'); assert.equal(await saveContextTask(stateDir, state), true);
+  const request = { repo_root: root, request_hash: state.request_hash, repo_revision: state.repo_revision,
+    context_epoch: state.context_epoch, paths: ['bom.mjs'], symbols: [], family: 'code_context', exhaustive: false,
+    state_dir: stateDir, session_id: state.session_id };
+  for (const scope of [{ kind: 'worktree' }, { kind: 'range', base: head, head }]) {
+    const result = await selectCodeContext({ ...request, scope, byte_limit: 6000 });
+    assert.equal(result.status, 'ok', result.stderr);
+    const entry = result.entries.find(entry => entry.path === 'bom.mjs');
+    assert.deepEqual(Buffer.from(entry.content), bytes, 'Delivered evidence must preserve BOM and CRLF');
+    assert.equal(createHash('sha256').update(entry.content).digest('hex'), entry.sha256);
+    const page = await selectCodeContext({ ...request, scope, byte_limit: 1200 });
+    assert.equal(page.status, 'ok', page.stderr); assert.equal(page.omissions.length, 1);
+    const whole = await repositoryContext.readContext({ ...request, reference: page.full_result,
+      cursor: page.omissions[0].cursor, byte_limit: 1200 });
+    assert.equal(whole.status, 'ok', whole.stderr);
+    assert.deepEqual(Buffer.from(whole.entries[0].content), bytes);
+  }
+});
+
 // Dropping an explicit target, its found callers/dependencies or applicable instructions breaks this boundary.
 test('protected_evidence_and_exact_pages', async () => {
   const root = await mkdtemp(join(temporaryRoot, 'protected-'));
@@ -101,6 +145,15 @@ test('protected_evidence_and_exact_pages', async () => {
   const failedPage = JSON.parse(failedSearch.stdout);
   assert.equal(failedPage.status, 'error'); assert.equal(failedPage.stderr, 'Fixture rg search denied\n');
   assert.deepEqual(failedPage.entries, [], 'Failed evidence reads cannot masquerade as empty success');
+  await writeFile(join(failureBin, 'rg'), '#!/bin/sh\nprintf "diag\\377\\n" >&2\nexit 9\n');
+  const binaryDiagnostic = spawnSync(process.execPath, [fileURLToPath(new URL('../src/codex-context-policy.mjs', import.meta.url)), 'select_code_context'],
+    { env: { ...process.env, PATH: failureBin + ':' + process.env.PATH }, encoding: 'utf8', timeout: 3000,
+      input: JSON.stringify({ repo_root: root, state_dir: stateDir, session_id: state.session_id, paths: ['src/report.mjs'],
+        symbols: ['buildReport'], family: 'code_context', scope: { kind: 'worktree' }, exhaustive: false }) });
+  assert.equal(binaryDiagnostic.status, 9);
+  const diagnosticPage = JSON.parse(binaryDiagnostic.stdout);
+  assert.match(diagnosticPage.stderr, /^Repository context stderr \(base64\): /);
+  assert.deepEqual(Buffer.from(diagnosticPage.stderr.split(': ')[1], 'base64'), Buffer.from('64696167ff0a', 'hex'));
   const hash = value => createHash('sha256').update(value).digest('hex');
   const privateCorruption = 'SYNTHETIC_PRIVATE_RESULT_VALUE'; const corruptReference = hash(privateCorruption);
   await writeFile(join(stateDir, hash(root), hash(state.session_id), 'result-' + corruptReference + '.json'),

@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, mkdir, realpath } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir, realpath, readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -53,6 +53,23 @@ test('native_trial_is_bound_to_the_declared_corpus_and_repository', async () => 
     resolve('src/pilot-evaluation.mjs'), 'trial', '--tasks', tasksPath, '--admission', admissionPath],
     { input: JSON.stringify({ ...input, session_id: 'unobserved-session' }), encoding: 'utf8', timeout: 3000 });
   assert.equal(unobserved.stdout, '', 'Experimental evidence cannot be emitted when its audit write fails');
+  const delayedBootstrap = join(temporaryRoot, 'delayed-observation.mjs');
+  await writeFile(delayedBootstrap, "import fs from 'node:fs/promises'; import {syncBuiltinESMExports} from 'node:module';\n" +
+    'const original = fs.writeFile; fs.writeFile = async (path, ...args) => { const result = await original(path, ...args); ' +
+    "if (String(path).includes('trial-observation-')) await new Promise(resolve => setTimeout(resolve, 2200)); return result; }; syncBuiltinESMExports();\n");
+  const delayed = spawnSync(process.execPath, ['--import', bootstrap, '--import', delayedBootstrap,
+    resolve('src/pilot-evaluation.mjs'), 'trial', '--tasks', tasksPath, '--admission', admissionPath],
+    { input: JSON.stringify({ ...input, session_id: 'delayed-observation-session' }), encoding: 'utf8', timeout: 6000 });
+  assert.equal(delayed.status, 0, delayed.stderr);
+  assert.equal(delayed.stdout, '', 'An audit write past the shared deadline must discard experimental context');
+  assert.match(delayed.stderr, /Context trial audit unavailable/);
+  const observations = await Promise.all((await readdir(temporaryRoot)).filter(name => name.startsWith('trial-observation-'))
+    .map(name => readFile(join(temporaryRoot, name), 'utf8').then(JSON.parse)));
+  const delayedAudit = observations.find(record => record.session_id === 'delayed-observation-session');
+  assert.equal(delayedAudit.emission_attempted, true);
+  assert.equal(delayedAudit.emitted, false, 'A pre-output audit cannot certify emission');
+  assert.equal(delayedAudit.delivery_confirmed, false);
+  assert.equal(delayedAudit.measurement_scope, 'hook-preparation-before-audit', 'Audit duration exclusions must be explicit');
   assert.equal(await readFile(join(root, '.codex/codex-context-policy.json')).then(() => true, error => error.code !== 'ENOENT'), false,
     'An experimental handler cannot install or activate production policy');
   // Native UPS omits version/effort; only metadata for this exact session and active turn may supply them.

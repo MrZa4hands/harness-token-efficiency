@@ -1,5 +1,6 @@
 import { captureRepositorySnapshot } from './context-state.mjs';
 import { createHash } from 'node:crypto';
+import { isUtf8 } from 'node:buffer';
 import { constants } from 'node:fs';
 import { open, lstat, realpath, mkdtemp, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, basename, extname } from 'node:path';
@@ -10,6 +11,11 @@ import { storeContextResult } from './context-results.mjs';
 export { readContext } from './context-results.mjs';
 
 const runRepositoryProcess = promisify(execFile);
+
+function repositoryDiagnosticText(bytes) {
+  return isUtf8(bytes) ? new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+    : 'Repository context stderr (base64): ' + bytes.toString('base64');
+}
 
 async function repositoryGitBytes(root, args, signal, allowedCodes = [0], input) {
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
@@ -23,7 +29,7 @@ async function repositoryGitBytes(root, args, signal, allowedCodes = [0], input)
   } catch (error) {
     if (allowedCodes.includes(error.code) && Buffer.isBuffer(error.stdout)) return error.stdout;
     throw Object.assign(new Error('Repository context Git failed.'), { exit_code: Number.isInteger(error.code) ? error.code : 1,
-      stderr: Buffer.isBuffer(error.stderr) ? new TextDecoder('utf-8', { fatal: true }).decode(error.stderr) : 'Repository context Git unavailable.' });
+      stderr: Buffer.isBuffer(error.stderr) ? repositoryDiagnosticText(error.stderr) : 'Repository context Git unavailable.' });
   }
 }
 
@@ -82,9 +88,10 @@ async function rawRepositoryDiff(before, after, signal) {
     // Purge only freshly created scratch bytes; Trash receives an empty owned directory.
     try {
       for (const name of ['before', 'after']) await unlink(join(directory, name)).catch(error => { if (error.code !== 'ENOENT') throw error; });
-      await runRepositoryProcess('trash', [directory], { timeout: 1000, signal });
+      await runRepositoryProcess('trash', [directory], { timeout: 1000, signal, encoding: 'buffer' });
     } catch (error) {
-      const diagnostic = typeof error.stderr === 'string' && error.stderr ? error.stderr : 'Repository context scratch cleanup failed.';
+      const diagnostic = Buffer.isBuffer(error.stderr) && error.stderr.length ? repositoryDiagnosticText(error.stderr)
+        : typeof error.stderr === 'string' && error.stderr ? error.stderr : 'Repository context scratch cleanup failed.';
       if (primaryError) primaryError.stderr = (primaryError.stderr ?? primaryError.message) + '\n' + diagnostic;
       else throw Object.assign(new Error('Repository context scratch cleanup failed.'), {
         exit_code: Number.isInteger(error.code) ? error.code : 1, stderr: diagnostic });
@@ -203,7 +210,7 @@ async function searchRepositoryContextText(files, symbols, signal) {
   const environment = { ...process.env }; delete environment.RIPGREP_CONFIG_PATH;
   const output = await new Promise((resolveSearch, rejectSearch) => {
     const child = spawn('rg', args, { env: environment, signal, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = ''; let stderr = ''; let size = 0;
+    let stdout = ''; let stderr = Buffer.alloc(0); let size = 0;
     child.once('error', rejectSearch);
     child.stdin.on('error', error => { if (error.code !== 'EPIPE') rejectSearch(error); });
     child.stdout.on('data', chunk => {
@@ -211,10 +218,10 @@ async function searchRepositoryContextText(files, symbols, signal) {
       if (size > 4_000_000) { child.kill(); rejectSearch(new Error('Repository context search output limit exceeded.')); }
       else stdout += chunk.toString('utf8');
     });
-    child.stderr.on('data', chunk => { if (Buffer.byteLength(stderr) < 32000) stderr += chunk.toString('utf8'); });
+    child.stderr.on('data', chunk => { if (stderr.length < 32000) stderr = Buffer.concat([stderr, chunk]); });
     child.once('close', code => {
       if (code === 0 || code === 1) resolveSearch(stdout);
-      else rejectSearch(Object.assign(new Error('Repository context rg failed.'), { exit_code: code, stderr }));
+      else rejectSearch(Object.assign(new Error('Repository context rg failed.'), { exit_code: code, stderr: repositoryDiagnosticText(stderr) }));
     });
     child.stdin.end(input);
   });
@@ -270,7 +277,7 @@ export async function selectCodeContext(request) {
       loadedBytes += bytes.length;
       if (loadedBytes > 64_000_000) throw new Error('Repository context evidence byte limit exceeded.');
       let content; let encoding = 'utf8';
-      try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); if (content.includes('\0')) throw new Error('Binary bytes'); }
+      try { content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); if (content.includes('\0')) throw new Error('Binary bytes'); }
       catch { content = bytes.toString('base64'); encoding = 'base64'; }
       files.push({ ...item, sha256: createHash('sha256').update(bytes).digest('hex'), content, encoding });
     }
