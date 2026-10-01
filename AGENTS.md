@@ -77,6 +77,8 @@ Do not run a shipping helper that restarts reviews after the second stage. If ex
 
 ## Current Preparation State
 
-On 2026-09-30, `develop` was absent locally and `git ls-remote --heads origin develop` returned no matching remote branch. Establish the intended `develop` branch before executing an implementation plan. This does not block documentation preparation.
+Current state, 2026-10-01: Roe established `develop` and the independent delivery remote `https://github.com/MrZa4hands/harness-token-efficiency.git`. Phase 0 started from `f416fd89797281294c08e0062d95c5aeeba17880` in its own feature worktree. PR #1 targets `develop`; both required review stages completed and all confirmed findings were corrected. See [phase 0 validation](docs/validation/phase-0.md) and [release procedure](docs/RELEASING.md) for delivery evidence and cleanup constraints. Native registrations still refer to that worktree; retain it until withdrawal or relocation is safely completed.
 
-On 2026-10-01, Roe requested an independent repository in this directory. It starts on `main` without a configured remote or `develop`; the earlier Git observations describe the former parent repository, not this repository. Do not inherit its upstream remote or invent a delivery base.
+Historical planning state: on 2026-09-30, `develop` was absent locally and `git ls-remote --heads origin develop` returned no matching remote branch. That absence no longer describes the independent repository.
+
+At independent initialization on 2026-10-01, the directory initially had `main` without a remote or `develop`. Earlier parent-repository observations must not be reused as this repository's delivery base.

@@ -7,7 +7,7 @@ read_when: Before analyzing the module, reviewing its specification, or preparin
 
 Research and design for reducing tokens in Codex through automation, inspired by LifeOS and Jev.
 
-This module contains the project documents and will contain its implementation, tests, and plans. Read [AGENTS.md](AGENTS.md) before planning or implementation.
+Phase 0 provides an inert native hook, reversible installation, version-limited usage measurement, a reproducible pilot corpus, and a verification gate. Read [AGENTS.md](AGENTS.md) before planning or implementation.
 
 This directory is an independent Git repository, initialized on October 1, 2026. LifeOS remains sibling reference material; its former parent Git metadata was moved to Trash.
 
@@ -17,7 +17,19 @@ This directory is an independent Git repository, initialized on October 1, 2026.
 | [Pilot specification](docs/codex-token-efficiency-spec.md) | Current-interface design, automatic decisions, contracts, coverage, evaluation, and five phases. | Before reviewing the design or preparing the implementation plan. |
 | [Implementation plan](docs/plans/2026-09-30-codex-token-efficiency.md) | Five sequential PRs, TDD tasks, integration, evaluation, and the complete delivery lifecycle. | Before reviewing the plan or executing a phase. |
 | [Initial research](docs/codex-token-efficiency-proposal.md) | Jev and Glance analysis, code findings, harness limitations, and candidate measures. | For evidence and design background. |
+| [Usage and configuration](docs/usage.md) | Installation, native trust, configuration, withdrawal, and recovery. | Before installing or removing hooks. |
+| [Architecture](docs/architecture.md) | Current modules, ownership, and measurement boundaries. | Before changing the implementation. |
+| [Evaluation](docs/evaluation.md) | Usage contracts, fixture, corpus, and measurement limitations. | Before collecting or comparing usage. |
+| [Phase 0 validation](docs/validation/phase-0.md) | Native observations, TDD, reviews, and delivery evidence. | Before assessing compatibility or resuming delivery. |
+| [Release procedure](docs/RELEASING.md) | Required checks, merge, and safe cleanup. | Before closing a phase PR. |
+| [Changelog](CHANGELOG.md) | Pilot capabilities and limitations. | Before using a new phase. |
 
-The specification and plan await review. Roe requested this plan; the mechanisms remain unimplemented and token savings have not been measured.
+Roe authorized the five-phase plan. Phase 0 is implemented; phases 1–4 remain pending. The handler performs no optimization in any mode. Token savings have not been measured, and no operation is promoted.
 
-Execution requires an explicitly established develop branch and delivery remote. Neither is configured in this new repository.
+The delivery remote is `https://github.com/MrZa4hands/harness-token-efficiency.git`; implementation PRs target `develop`. Phase 0 is tracked by PR #1. Run the standard-library gate from this checkout:
+
+```sh
+rtk proxy node scripts/verify-context-policy.mjs
+```
+
+The gate currently passes 36 tests plus syntax, JSON/corpus, document links, and source-scope checks. Native compatibility is separately recorded in the validation document; tests alone cannot establish client coverage.

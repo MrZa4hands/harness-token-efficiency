@@ -10,7 +10,7 @@
 
 **Spec:** [Pilot specification](../codex-token-efficiency-spec.md), R1–R8 and phases 0–4. Also read [AGENTS.md](../../AGENTS.md), [README.md](../../README.md), and [research](../codex-token-efficiency-proposal.md).
 
-**Status:** Roe authorized implementation on 2026-10-01. Native inline execution selected; phase 0A/0B deliverables pass with partial, explicitly limited coverage. Native policy trust and the off-mode trial are verified. Phase-0 PR, reviews, release documentation, and merge remain pending; no optimizer operation is activated. Evidence: [phase 0 validation](../validation/phase-0.md).
+**Status:** Roe authorized implementation on 2026-10-01. Native inline execution selected; phase 0A/0B deliverables pass with partial, explicitly limited coverage. Native policy trust and the off-mode trial are verified. PR #1 targets develop; both required review stages completed, all confirmed findings were corrected, and release documentation is available. Delivery and safe cleanup follow the closeout below; no optimizer operation is activated. Evidence: [phase 0 validation](../validation/phase-0.md).
 
 **read_when:** Before implementing a phase, opening its PR, or resuming after compaction.
 
@@ -41,7 +41,7 @@
 
 ## Verified Preparation and Prerequisites
 
-Repository update, 2026-10-01: Roe requested removal of the parent Git metadata and initialization here. The repository root is now `/Users/mrz/Documents/Roe/tools/LifeOS/codex-token-efficiency`; the old `.git` is in Trash. This new repository starts on `main` without a remote or `develop`. Do not reuse the former upstream or its SHA as this repository's base.
+Repository update, 2026-10-01: Roe requested removal of the parent Git metadata and initialization here. The repository root is now `/Users/mrz/Documents/Roe/tools/LifeOS/codex-token-efficiency`; the old `.git` is in Trash. The new repository initially had main only; Roe subsequently established develop and the authorized independent remote. Phase 0 starts from `f416fd89797281294c08e0062d95c5aeeba17880`. Do not reuse the former upstream or its SHA as this repository's base.
 
 Historical read-only checks at the start of the planning session, 2026-09-30; these describe the former parent repository:
 
@@ -56,7 +56,7 @@ Historical read-only checks at the start of the planning session, 2026-09-30; th
 | Candidate usage source | Local `event_msg` → `token_count` → `info.total_token_usage` records, located without exposing conversations |
 | Required review/documentation skills | Their exact AGENTS.md paths exist |
 
-**Execution prerequisite:** Establish Roe's intended `develop` branch in this independent repository and verify its authorized delivery remote/write access. Do not invent `develop` from `main`, assume a remote, or import the former parent's history to bypass this prerequisite. Documentation preparation can proceed.
+**Execution prerequisite, satisfied for phase 0:** Roe's intended develop branch and independent remote/write access were verified. Refresh and verify develop again before every subsequent phase; never import the former parent's history or substitute a base branch.
 
 Before phase 0, ensure the selected `develop` makes the specification, instructions, and this plan available. If absent, transfer only explicitly authorized documentation, preserving unrelated commits. Installed CLI support does not prove hooks run in the current interface; 0A must establish that.
 

@@ -39,13 +39,13 @@ All runtime paths start unverified and disabled. The installed CLI's version alo
 
 ## Progress
 
-Tasks 0A and 0B implemented and validated for the observed paths. Reviews, release documentation, PR, and merge remain pending; phase 0 is not closed.
+Tasks 0A and 0B are implemented and validated for the observed paths. PR #1 targets develop; both mandated review stages completed, all confirmed findings were corrected, and release documentation was added. Final merge and cleanup status are recorded by the PR and execution ledger. No optimizer is activated.
 
 ## Task 0A RED/GREEN
 
 - Initial interface stubs produced three behavioral assertion failures: installation results missing, invalid configuration did not normalize to off, and unverified event registration absent.
 - Temporary compatibility probe first failed its marker assertion, then passed with hash-only event logs.
-- `rtk proxy node --test tests/hook-installation.test.mjs`: 4 passed, 0 failed.
+- Initial task-0A checkpoint: `rtk proxy node --test tests/hook-installation.test.mjs` reported 4 passed, 0 failed; subsequent review regressions increase the current suite below.
 - `rtk proxy git diff --check`: exit 0.
 - Existing hooks retain order, unknown handlers, metadata, and file permissions. Dry run writes nothing; repeat install is unchanged; removal preserves later foreign additions.
 - Production installation filters events through project-local verified coverage; no coverage means no registered optimizer handlers.
@@ -111,15 +111,15 @@ The desktop engine's native `hooks/list` initially discovered the real handler f
 
 A subsequent actual CLI 0.159.2 `codex_exec` trial in the phase-0 worktree completed successfully with the exact requested reply, no tool calls, and mode still `off`. The private probe log records SessionStart, UserPromptSubmit, and SessionEnd for that trial; stderr contains no hook failure or untrusted-hook diagnostic. The CLI does not export an isolated completion record for the silent policy handler, so this is a trusted native off-mode installation trial, not per-handler telemetry. The installed source still refers to the temporary worktree, so cleanup is unsafe until registration is safely relocated or removed.
 
-Phase-0 completion ruling: the specification's compatibility matrix permits unsupported/unverified paths to stay disabled, and its usage contract permits indicators when complete-task measurement is unavailable. The implemented deliverables establish actual pre-prompt delivery in both interfaces, additive installation and native trust, version-limited real usage, independent worker counter validation, and the initial corpus. Automatic worker discovery and unobserved paths remain explicit limitations; neither token promotion nor savings claims are permitted. The phase still requires its PR, exactly two review stages, release documentation, and merge before phase 1.
+Phase-0 completion ruling: the specification's compatibility matrix permits unsupported/unverified paths to stay disabled, and its usage contract permits indicators when complete-task measurement is unavailable. The implemented deliverables establish actual pre-prompt delivery in both interfaces, additive installation and native trust, version-limited real usage, independent worker counter validation, and the initial corpus. Automatic worker discovery and unobserved paths remain explicit limitations; neither token promotion nor savings claims are permitted. The PR lifecycle below follows this integration checkpoint; phase 1 starts only after the phase-0 merge.
 
 ## Usage Source Reconnaissance
 
-Read metadata and token-counter shapes from twelve recent local session logs without printing, exporting, or retaining conversation content. Observed versions include CLI 0.159.2 and Desktop 0.155.0-alpha.16.4. Six token fields are present: input, cached input, cache-write input, output, reasoning output, and total. No cumulative decreases appeared in this small inspection. Worker inclusion, counter epochs, and the current interface's version remain unverified; this is source discovery, not complete task measurement.
+Initial reconnaissance, before the native trials above: metadata and token-counter shapes from twelve recent local session logs were read without printing, exporting, or retaining conversation content. Observed versions included CLI 0.159.2 and Desktop 0.155.0-alpha.16.4. Six token fields were present: input, cached input, cache-write input, output, reasoning output, and total. No cumulative decreases appeared in that small inspection. Worker inclusion, counter epochs, and the current interface's version were then unverified; this was source discovery, not complete task measurement.
 
 ## Checkpoint
 
-At the earlier checkpoint, node syntax, configuration JSON, and the 500-line file limit checks passed while native installation was incomplete. The subsequent evidence above closes that installation check. No PR review, merge, promotion, or token-savings claim has occurred; later phases have not started.
+At the earlier checkpoint, node syntax, configuration JSON, and the 500-line file limit checks passed while native installation was incomplete and no PR review had occurred. The subsequent evidence closes that installation check; the review/delivery section below records later progress. Later phases, promotions, and token-savings measurements have not started.
 
 ## Task 0B Checkpoint
 
@@ -131,13 +131,57 @@ Roe uses both Codex App and CLI. Maintain independent coverage and client-versio
 - Corpus: 60 held-out cases (ten per category) and six distinct tuning conversations. Each pins revision, fixture hash/state, expected checks, required evidence, and independently annotated outcome assertions. The reproducible fixture has 533 tracked files, an executable indirect dependency chain, Unicode/newline names, staged/unstaged changes, rename, deletion, untracked addition, and a declared long-stderr exit-7 check. Human assessment of assertions remains part of pilot evaluation; these cases are not measured runs.
 - Synthetic fixture Git processes isolate inherited Git environment/configuration, use fixed identity/date and an empty destination, and preserve the same baseline SHA across separate roots and dirty profiles. No dependency installation, paid inference, or extra server is needed.
 - RED observed before implementation: usage collector, transcript CLI, missing corpus, fixture materialization, and gate failure detection. Regression RED observed for unstaged rename identification and inherited Git directory redirection; both are green after owner-boundary corrections.
-- `rtk proxy node scripts/verify-context-policy.mjs`: exit 0; nine tests pass. Syntax, JSON/JSONL, corpus, local document links, 500-line limit, and repository scope checks pass. External sibling reference links resolve from the primary checkout under AGENTS.md. Node test engine markers are removed for fresh check subprocesses, so nested checks execute rather than silently skip.
+- At this task-0B checkpoint, `rtk proxy node scripts/verify-context-policy.mjs` exited 0 with nine passing tests. Syntax, JSON/JSONL, corpus, local document links, 500-line limit, and repository scope checks passed. External sibling references resolved from the primary checkout under AGENTS.md. Node test engine markers are removed for fresh check subprocesses, so nested checks execute rather than silently skip.
 
-Tasks 0A and 0B now meet the limited compatibility and measurement deliverables described above. Phase 0 has no PR yet; both mandated reviews, release documentation, and merge remain pending. No subsequent phase or optimizer promotion has begun.
+Tasks 0A and 0B met the limited compatibility and measurement deliverables at this pre-PR checkpoint. Reviews, release documentation, and merge were then pending. No subsequent phase or optimizer promotion had begun.
 
 ## Updated Verification
 
 - The real CLI 0.159.3 source contains thirteen cumulative counter events matching the same validated six-field contract, with no unexplained decrease. Its adapter support first failed the regression assertion `null !== 150`, then passed after adding this exact observed version. Metadata/version mismatches and unseen versions still fail closed. Its real session adapter returns available session totals with worker coverage false.
-- `rtk proxy node scripts/verify-context-policy.mjs`: eleven tests plus syntax, JSON/corpus, document links, and source scope pass. No raw transcript, session identities, or exact private-session totals were exported into repository artifacts.
+- At the native-installation checkpoint, eleven tests plus syntax, JSON/corpus, document links, and source scope passed. No raw transcript, session identities, or exact private-session totals were exported into repository artifacts.
 - Parent/worker counters were validated against a real completed native CLI task. Automatic task-wide discovery remains unverified, and session-only CLI reports retain worker coverage false.
-- The real off-mode policy handler is natively trusted and its actual CLI installation trial completes without tools or hook diagnostics. Remaining integration paths stay unverified and disabled; phase-0 delivery remains pending the required PR lifecycle, and token savings are unmeasured.
+- The real off-mode policy handler is natively trusted and its actual CLI installation trial completes without tools or hook diagnostics. Remaining integration paths stay unverified and disabled; token savings are unmeasured.
+
+## Trust Snapshot and Retained Installation
+
+An attempted withdrawal of the six probes changed the primary hook source document and made the real policy handler `modified`, despite its unchanged command. The exact authorized source bytes were restored without writing trust state; fresh native discovery again returned six trusted probes and one trusted policy handler. The probes therefore remain registered. Their removal requires coordinated source editing and native re-trust before optimization-baseline measurements.
+
+The trusted runtime definition still uses the earlier, unmarked command at the temporary phase-0 source. The reviewed installer now generates stable per-target command-comment markers and supports upgrading the version-1 receipt; applying that upgrade changes the native definition and requires checking trust. No upgrade was applied to the authorized runtime snapshot during the review fixes. Retain the worktree and feature branches until active/installed references are safely withdrawn or relocated.
+
+## Required Reviews and Corrections
+
+PR #1 base is develop, starting at `f416fd89797281294c08e0062d95c5aeeba17880`.
+
+First review used the exact required `$review`. Core checklist, six applicable specialists, red-team, fresh native adversarial review, and both actual Claude Code adversarial/structured passes completed. Actual reported provider identity was `claude-opus-5-5`; usage/model metadata remained private. Native fixture/test payload inspection was summary-only and was not claimed complete raw-payload review. The installed skill lacks the referenced quality-score formula, so the score remained unavailable rather than invented.
+
+All confirmed first-stage findings were corrected through behavioral regressions. Its final coverage completed, but `converged:false` and three fix cycles were retained because the last captured pass required corrections. No fourth pass or replacement token was fabricated. Corrections were committed and pushed as `36b8742` after the skill returned.
+
+Second review used `$superpowers:requesting-code-review` with a fresh reviewer and the complete actual range `f416fd89797281294c08e0062d95c5aeeba17880..36b87427402883bdf4a8693c0d02c9dad31eca9a`. The reviewer read source, callers, tests, templates, fixture, corpus, plan, and public evidence. It found one additional ownership defect: edited commands or moved events escaped the original-event/exact-command check. The regression first returned `error:null`; marker-aware detection across all events now rejects those mutations without changing hooks, policy, or receipt. Correction `b4eabf3` was committed and pushed after targeted GREEN and the complete gate.
+
+Both independent review stages are finished. Every confirmed finding is resolved; no reviewer was restarted after stage two. Documentation follows the explicit project override, with no independent documentation reviewer.
+
+| Correction boundary | Runnable evidence |
+|---|---|
+| Durable ownership and truthful partial writes | `installation_write_failures_preserve_ownership_and_allow_recovery` |
+| Coverage withdrawal, final compaction failure/retry, foreign re-addition | `installation_reconciles_revoked_coverage_without_orphaning_hooks` |
+| Pending A receipt preserves replacement B | `pending_withdrawal_cannot_delete_another_worktree_registration` |
+| Source disappearance/alias and unrelated-source rejection | `missing_source_removal_accepts_recorded_alias_only`; canonical-source regression |
+| Modified definitions, exact extra copies, edited commands, moved events | `modified_owned_definition_is_preserved_and_exact_foreign_copy_survives`; `edited_owned_commands_and_moved_events_preserve_receipt_until_reconciled` |
+| Invalid/external policy withdrawal and structured lock-release failure | recovery tests for both boundaries |
+| Native root, receipt mismatch, symlink metadata, inherited Git routing | `installation_identity_and_git_discovery_boundaries_fail_closed`; Git-subdirectory regression |
+| Literal source characters, umask, symlink CLI, unrelated import arguments | installer path/mode and recovery CLI regressions |
+| UTF-8 chunk boundaries and private diagnostics | `hook_stdin_preserves_split_utf8_characters`; malformed-config regression |
+| Corrupt tails and bounded growing transcript snapshots | transcript-reader regressions |
+| Ambient Git hooks/excludes/attributes and declared corpus check identities | fixture/corpus and nested linked-worktree test regressions |
+| Portable external references with strict internal links | verification-gate regression |
+
+Disposition evidence: deleting a worktree/receipt before checking installed references violates the mandatory cleanup procedure, so no orphan-source ledger was added. Duplicate JSON-key/unsafe-number claims lacked verified native effective-handler evidence; supported JSON value semantics remain the boundary, with no custom parser. A corpus-shaped failure response for a non-corpus command was not a breach of a promised fixture-error schema: fixture materialization rejects with a nonzero CLI exit. No speculative abstraction was added for those claims. Remaining native/model/worker limitations remain explicit rather than silently classified as coverage.
+
+## Final Phase-0 Gate and Delivery
+
+- Full gate after both stages and their corrections: 36 passed, 0 failed, 0 skipped; syntax, JSON/corpus, internal document links, file limits, and source scope pass.
+- `rtk proxy git diff --check`: exit 0.
+- Test-owned temporary roots move to Trash; Git test processes isolate ambient hooks/templates/configuration.
+- Public release docs describe only shipped phase-0 behavior. There is no VERSION file, release tag, or dependency/linter/typechecker configuration to bump or simulate.
+- At PR inspection, GitHub reported no checks and no CI runs. No configured CI is recorded as absent, not green. Final-head checks/protections and the merged SHA must be verified during delivery.
+- Merge targets develop without protection bypass. Cleanup remains unsafe while native commands refer to the phase-0 worktree; preserve its local/remote branch and worktree until trust-aware relocation or removal.
