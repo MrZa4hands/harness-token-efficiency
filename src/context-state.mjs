@@ -111,21 +111,16 @@ export async function markContextHistoryGap(stateDir, repoRoot, sessionId) {
   finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
 }
 
-/** Capture context task identity and current repository evidence without following symlinks. */
-export async function captureContextTask(input, previous) {
-  if (!input || !contextIdentityValid(input.session_id) || typeof input.cwd !== 'string' ||
-      input.hook_event_name !== 'UserPromptSubmit' || typeof input.prompt !== 'string' ||
-      !input.prompt.trim() ||
-      (input.turn_id !== undefined && !contextIdentityValid(input.turn_id)) ||
-      input.parent_session_id === input.session_id ||
-      (input.is_subagent && (!input.parent_session_id || !input.thread_id || input.thread_id === input.parent_thread_id))) {
-    throw new Error('Context task identity rejected; baseline retained.');
-  }
-  if (Buffer.byteLength(input.prompt) > 6000) throw new Error('Context request byte limit exceeded; baseline retained.');
+/** Capture a raw repository snapshot without Git conversion filters or external symlink reads.
+ * @param {string} repoRoot
+ * @param {AbortSignal} [signal]
+ * @param {string[]} [explicitPaths] Additional explicit paths, including ignored files, checked without altering the base revision.
+ * @returns {Promise<{repo_root:string,repo_revision:string,inventory:string[],inventory_hash:string,
+ * unreadable_paths:string[],files:object[],head:string,index:string}>} */
+export async function captureRepositorySnapshot(repoRoot, signal = AbortSignal.timeout(1800), explicitPaths = []) {
   const started = Date.now();
-  const signal = input.signal ?? AbortSignal.timeout(1800);
   const checkDeadline = () => { signal.throwIfAborted(); if (Date.now() - started > 1800) throw new Error('Context inventory deadline exceeded; baseline retained.'); };
-  const root = await realpath(input.cwd);
+  const root = await realpath(repoRoot);
   const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0' };
   const git = async args => {
@@ -137,13 +132,13 @@ export async function captureContextTask(input, previous) {
     } catch (error) { throw new Error('Context inventory Git failed; baseline retained.', { cause: { code: error.code ?? 'invalid-output' } }); }
   };
   if ((await realpath((await git(['rev-parse', '--show-toplevel'])).trim())) !== root) throw new Error('Context repository root rejected; baseline retained.');
-  if (previous) {
-    validateContextState(previous);
-    if (previous.repo_root !== root || previous.session_id !== input.session_id) throw new Error('Context task identity rejected; baseline retained.');
-  }
   // Raw index and file hashes avoid Git status, which can execute repository clean filters.
   const inventoryText = await git(['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
-  const inventory = [...new Set(inventoryText.split('\0').filter(Boolean))].sort();
+  const baseInventory = new Set(inventoryText.split('\0').filter(Boolean));
+  if (!Array.isArray(explicitPaths) || !explicitPaths.every(path => typeof path === 'string' && path &&
+      !isAbsolute(path) && !path.includes('\0') && relative(root, resolve(root, path)) === path))
+    throw new Error('Context inventory explicit path rejected; baseline retained.');
+  const inventory = [...new Set([...baseInventory, ...explicitPaths])].sort();
   const readHead = () => git(['rev-parse', '--verify', '--quiet', 'HEAD']).catch(error => {
     // An unborn fixture repository has no HEAD; every other Git failure must remain visible.
     if (error.cause?.code === 1) return 'unborn'; throw error;
@@ -193,6 +188,36 @@ export async function captureContextTask(input, previous) {
         ['ino', 'dev', 'mtimeMs', 'ctimeMs', 'size', 'mode'].some(key => before[key] !== current[key])) ||
         (readable && await realpath(target) !== target)) throw new Error('Context inventory changed during capture; baseline retained.');
   }
+  const hashes = new Map(contents);
+  const files = capturedFiles.filter(([, , readable]) => readable).map(([target, stat]) => ({
+    path: relative(root, target), sha256: hashes.get(relative(root, target)), ino: stat.ino, dev: stat.dev,
+    size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, mode: stat.mode }));
+  checkDeadline();
+  return { repo_root: root, repo_revision: contextHash({ head, index, contents: contents.filter(([path]) => baseInventory.has(path)) }), inventory,
+    inventory_hash: contextHash(inventory), unreadable_paths: unreadablePaths, files, head: head.trim(), index };
+}
+
+/** Capture context task identity and current repository evidence without following symlinks. */
+export async function captureContextTask(input, previous) {
+  if (!input || !contextIdentityValid(input.session_id) || typeof input.cwd !== 'string' ||
+      input.hook_event_name !== 'UserPromptSubmit' || typeof input.prompt !== 'string' ||
+      !input.prompt.trim() ||
+      (input.turn_id !== undefined && !contextIdentityValid(input.turn_id)) ||
+      input.parent_session_id === input.session_id ||
+      (input.is_subagent && (!input.parent_session_id || !input.thread_id || input.thread_id === input.parent_thread_id))) {
+    throw new Error('Context task identity rejected; baseline retained.');
+  }
+  if (Buffer.byteLength(input.prompt) > 6000) throw new Error('Context request byte limit exceeded; baseline retained.');
+  const started = Date.now();
+  const signal = input.signal ?? AbortSignal.timeout(1800);
+  const checkDeadline = () => { signal.throwIfAborted(); if (Date.now() - started > 1800) throw new Error('Context inventory deadline exceeded; baseline retained.'); };
+  const root = await realpath(input.cwd);
+  if (previous) {
+    validateContextState(previous);
+    if (previous.repo_root !== root || previous.session_id !== input.session_id) throw new Error('Context task identity rejected; baseline retained.');
+  }
+  const snapshot = await captureRepositorySnapshot(root, signal);
+  const { inventory, inventory_hash: inventoryHash, unreadable_paths: unreadablePaths } = snapshot;
   const knownFollowup = contextFollowup.test(input.prompt.trim());
   // ponytail: gap recovery requires a standalone explicit command; ambiguous continuations stay baseline.
   const explicitRecovery = previous?.history_gap && /^(?:inspect|review|analy[sz]e|explain|document|implement|revisa|analiza|explica|documenta|implementa)\s+/iu.test(input.prompt.trim());
@@ -207,9 +232,8 @@ export async function captureContextTask(input, previous) {
   const protectedRequirements = [...new Set([...(previous?.protected_requirements ?? []),
     ...explicitPaths.map(path => 'path:' + path), ...symbols.map(symbol => 'symbol:' + symbol),
     ...(contextExhaustive.test(input.prompt) ? ['exhaustive_coverage'] : [])])];
-  const inventoryHash = contextHash(inventory);
   const state = { schema_version: 1, session_id: input.session_id, turn_id: input.turn_id ?? randomUUID(),
-    repo_root: root, repo_revision: contextHash({ head, index, contents }), inventory, inventory_hash: inventoryHash,
+    repo_root: root, repo_revision: snapshot.repo_revision, inventory, inventory_hash: inventoryHash,
     unreadable_paths: unreadablePaths, request_hash: contextHash(input.prompt), recent_requests: requests,
     protected_requirements: protectedRequirements, continuity, history_gap: unresolvedGap,
     expected_jev_model: previous?.expected_jev_model ?? previous?.versions.jev_model ?? null,

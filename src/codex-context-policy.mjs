@@ -145,6 +145,17 @@ export async function handleCodexHook(input, sourceRoot) {
 }
 
 const policyEntryPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;
+async function readContextCliInput() {
+  let text = ''; process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) {
+    text += chunk;
+    if (Buffer.byteLength(text) > 1_000_000) throw new Error('Context CLI input exceeds limit.');
+  }
+  const input = JSON.parse(text);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Context CLI input rejected.');
+  return input;
+}
+
 if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) {
   if (process.argv[2] === 'setup-jev') {
     try {
@@ -157,18 +168,35 @@ if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) 
       process.stdout.write(JSON.stringify(result) + '\n');
       process.exitCode = result.status === 'ok' ? 0 : 1;
     } catch { process.stderr.write('Context Jev setup rejected; configuration preserved.\n'); process.exitCode = 1; }
+  } else if (['select_code_context', 'get_repository_changes', 'read_context'].includes(process.argv[2])) {
+    let result;
+    try {
+      if (process.argv.length !== 3) throw new Error('Context CLI arguments rejected.');
+      const request = await readContextCliInput();
+      request.state_dir ??= join(homedir(), '.codex/codex-context-policy');
+      const operations = await import('./repository-context.mjs');
+      if (process.argv[2] === 'read_context') result = await operations.readContext(request);
+      else {
+        const { readContextTask } = await import('./context-state.mjs');
+        const task = await readContextTask(request.state_dir, request.repo_root, request.session_id);
+        if (!task || task.history_gap) throw new Error('Context CLI current task unavailable.');
+        const operation = process.argv[2] === 'select_code_context' ? operations.selectCodeContext : operations.getRepositoryChanges;
+        result = await operation({ ...request, request_hash: task.request_hash, repo_revision: task.repo_revision,
+          context_epoch: task.context_epoch, byte_limit: request.byte_limit ?? 8000 });
+      }
+    } catch {
+      result = { status: 'error', entries: [], coverage_status: 'partial', omissions: [], omitted_count: 0,
+        next_cursor: null, full_result: null, exit_code: 1, stderr: 'Context CLI request rejected; current private task required.' };
+    }
+    process.stdout.write(JSON.stringify(result) + '\n');
+    if (result.stderr) process.stderr.write(result.stderr + '\n');
+    process.exitCode = result.exit_code;
   } else if (process.argv[2] !== 'hook') {
     process.stderr.write('Context policy CLI: expected operation hook or setup-jev.\n');
     process.exitCode = 1;
   } else {
     try {
-      let text = '';
-      process.stdin.setEncoding('utf8');
-      for await (const chunk of process.stdin) {
-        text += chunk;
-        if (Buffer.byteLength(text) > 1_000_000) throw new Error('Context hook input exceeds limit');
-      }
-      const result = await handleCodexHook(JSON.parse(text), await realpath(new URL('../', import.meta.url)));
+      const result = await handleCodexHook(await readContextCliInput(), await realpath(new URL('../', import.meta.url)));
       process.stdout.write(result.stdout);
       process.stderr.write(result.stderr);
       process.exitCode = result.exit_code;
