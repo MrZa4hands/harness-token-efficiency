@@ -119,21 +119,25 @@ childProcess.execFile = (file, args, options, callback) => {
 };
 syncBuiltinESMExports();
 globalThis.fetch = async (url, options) => {
-  if (url !== 'https://api.typesafe.ai/v1/models' || options.headers.Authorization !== 'Bearer SYNTHETIC_INSTALLER_CREDENTIAL')
+  if (url !== 'https://api.typesafe.ai/v1/models' || options.headers.Authorization !== 'Bearer ' +
+    (process.env.TYPESAFE_API_KEY || 'SYNTHETIC_INSTALLER_CREDENTIAL'))
     throw new Error('Unsafe model discovery');
   return new Response(JSON.stringify({ models: [{ name: 'jev-fixture-installer', description: 'Fixture', release_date: '2026-09-15' }] }));
 };
 `);
-  const child = childProcess.spawnSync(process.execPath, ['--import', bootstrap, resolve('scripts/manage-context-policy.mjs'),
-    'install', '--repo', root, '--source', resolve('.'), '--apply', '--configure-jev'], { encoding: 'utf8', timeout: 3000 });
-  assert.equal(child.status, 0, child.stderr);
-  const result = JSON.parse(child.stdout);
-  assert.equal(result.error, null); assert.equal(result.credential_updated, true);
-  assert.equal(result.jev_setup.model, 'jev-fixture-installer');
-  const policyText = await readFile(join(root, '.codex/codex-context-policy.json'), 'utf8');
-  const policy = JSON.parse(policyText);
-  assert.equal(policy.mode, 'off'); assert.equal(policy.jev_model, 'jev-fixture-installer');
-  const hookText = await readFile(join(root, '.codex/hooks.json'), 'utf8');
-  assert.equal(JSON.parse(hookText).hooks.UserPromptSubmit.length, 1);
-  assert.equal([child.stdout, child.stderr, policyText, hookText].some(text => text.includes('SYNTHETIC_INSTALLER_CREDENTIAL')), false);
+  for (const key of ['', 'SYNTHETIC_ENVIRONMENT_CREDENTIAL']) {
+    const child = childProcess.spawnSync(process.execPath, ['--import', bootstrap, resolve('scripts/manage-context-policy.mjs'),
+      'install', '--repo', root, '--source', resolve('.'), '--apply', '--configure-jev'], {
+      encoding: 'utf8', timeout: 3000, env: { ...process.env, TYPESAFE_API_KEY: key } });
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout);
+    assert.equal(result.error, null); assert.equal(result.credential_updated, true);
+    assert.equal(result.jev_setup.model, 'jev-fixture-installer');
+    const policyText = await readFile(join(root, '.codex/codex-context-policy.json'), 'utf8');
+    const policy = JSON.parse(policyText);
+    assert.equal(policy.mode, 'off'); assert.equal(policy.jev_model, 'jev-fixture-installer');
+    const hookText = await readFile(join(root, '.codex/hooks.json'), 'utf8');
+    assert.equal(JSON.parse(hookText).hooks.UserPromptSubmit.length, 1);
+    assert.equal([child.stdout, child.stderr, policyText, hookText].some(text => text.includes('SYNTHETIC_')), false);
+  }
 });

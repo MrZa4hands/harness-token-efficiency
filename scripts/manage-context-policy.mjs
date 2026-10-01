@@ -275,10 +275,11 @@ if (installEntryPath && import.meta.url === pathToFileURL(installEntryPath).href
       result.jev_setup = { status: options.apply ? 'pending' : 'requires-apply', credential_store: 'macOS Keychain' };
       if (options.apply) {
         try {
-          const { configureJevCredential } = await import('../src/context-credentials.mjs');
+          const { configureJevCredential, readJevCredential } = await import('../src/context-credentials.mjs');
           const { configureJevModel } = await import('../src/jev-client.mjs');
-          const apiKey = await configureJevCredential();
+          await configureJevCredential();
           result.credential_updated = true; result.changed = true;
+          const apiKey = await readJevCredential();
           const setup = await configureJevModel(options.repo_root, { apiKey });
           result.jev_setup = { ...setup, credential_store: 'macOS Keychain' };
           if (setup.status === 'ok') result.files = [...new Set([...result.files,
