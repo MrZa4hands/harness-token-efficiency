@@ -27,15 +27,15 @@ All runtime paths start unverified and disabled. The installed CLI's version alo
 
 | Path | App status | CLI status |
 |---|---|---|
-| UserPromptSubmit | unverified | unverified |
+| UserPromptSubmit | unverified | supported: codex-tui 0.159.3 |
 | Direct Bash PreToolUse/PostToolUse | unverified | unverified |
 | Nested tools | unverified | unverified |
 | Local MCP | unverified | unverified |
 | Hosted MCP | unverified | unverified |
 | Persistent commands | unverified | unverified |
 | PostCompact | unverified | unverified |
-| SessionStart/resume | unverified | unverified |
-| SessionEnd | unverified | unverified |
+| SessionStart/resume | unverified | startup observed; resume unverified |
+| SessionEnd | unverified | observed: codex-tui 0.159.3 |
 
 ## Progress
 
@@ -61,7 +61,7 @@ Then request a harmless direct `pwd` command, and separately nested tool executi
 
 Manually compact and resume the same session using the client's supported controls. Record observed events and unsupported/unverified paths. SessionEnd requires actually ending the main session. Disable or remove probe definitions after the test; do not mark production coverage supported from unit tests or version detection alone.
 
-Native coverage, trust, and current-interface task usage remain unverified; Task 0A is not complete.
+Coverage is partial. Native trust and the observed paths below are confirmed; remaining interface paths and complete-task usage remain unverified. Task 0A is not complete.
 
 ### Linked Worktree Discovery Correction
 
@@ -69,7 +69,19 @@ On 2026-10-01, CLI 0.159.2 reproduced Roe's missing-hook report in a fresh `--no
 
 Registering the same probe definitions at the primary checkout's `.codex/hooks.json` made all six appear in `hooks/list`, each with `trustStatus: untrusted`, without warnings or errors. The actual CLI startup then showed `Hooks need review` and `6 hooks are new or changed`. `/hooks` showed `UserPromptSubmit` with three installed, two active, and one pending review; its new `Hook 1` identified the primary checkout source and the worktree probe command. No inference or trust approval was performed during this discovery check.
 
-This installed CLI resolves native hook registration through the primary checkout for linked worktrees. Registration there is runtime state permitted by AGENTS.md; implementation source remains in the feature worktree. The manager's project-local target must follow this observed installation location; do not infer that a successful write to a linked worktree is discoverable. Runtime event execution and App discovery remain unverified. The original worktree-only trust instructions were incorrect.
+This installed CLI resolves native hook registration through the primary checkout for linked worktrees. Registration there is runtime state permitted by AGENTS.md; implementation source remains in the feature worktree. The manager's project-local target must follow this observed installation location; do not infer that a successful write to a linked worktree is discoverable. The original worktree-only trust instructions were incorrect.
+
+### Native Probe Result
+
+Roe supplied the successful marker response on 2026-10-01. Private native session metadata identifies the matching session as `codex-tui`, version `0.159.3`, source `vscode`, with cwd at the phase-0 worktree. This identifies the observed runtime; it does not establish desktop coverage.
+
+The original user prompt contained no marker. At 09:13:45 UTC, the transcript recorded hook context carrying the expected marker in a developer message after `UserPromptSubmit`. The assistant returned it at 09:13:48 UTC without a tool call in that turn. The private probe log independently recorded `SessionStart` and `UserPromptSubmit`. This establishes context delivery before generation for that client version. Neither the transcript, private session identifiers, nor raw prompts were copied into repository artifacts.
+
+Later records in the same session include matched `PreToolUse` and `PostToolUse` events while the transcript records custom `exec` calls. Tool events are observed; direct Bash and nested-tool coverage remain separate validation cases. A preceding session with the same client metadata also recorded `SessionEnd`. Resume, compaction, persistent commands, and MCP paths remain unverified.
+
+The installed desktop application is version `26.928.21956`; its bundled engine reports `0.159.2`. Its native `hooks/list` discovers all six probe definitions as trusted without warnings or errors. Installed settings components expose Hooks, From Projects, Reload hooks, and per-hook Trust controls. Desktop discovery and persisted trust are established; actual desktop context delivery remains unverified. No trust records were written by the agent.
+
+The optimizer remains off; no token savings or complete phase-0 coverage is claimed.
 
 ## Usage Source Reconnaissance
 
@@ -77,11 +89,11 @@ Read metadata and token-counter shapes from twelve recent local session logs wit
 
 ## Checkpoint
 
-Node syntax, configuration JSON, and the 500-line file limit checks passed. Task 0A remains incomplete pending native trust and real-client integration. No PR review, merge, promotion, or token-savings claim has occurred. The feature commit is a resumable checkpoint; later phases have not started.
+Node syntax, configuration JSON, and the 500-line file limit checks passed. Task 0A remains incomplete pending remaining real-client integration cases. No PR review, merge, promotion, or token-savings claim has occurred. The feature commit is a resumable checkpoint; later phases have not started.
 
 ## Task 0B Checkpoint
 
-Roe uses both Codex App and CLI. Maintain independent coverage and client-version evidence; CLI evidence never proves App support. The native probe has not produced a real-client log yet.
+Roe uses both Codex App and CLI. Maintain independent coverage and client-version evidence; CLI evidence never proves App support. Native probe logs now exist for the sessions described above. The observed `0.159.3` session is outside the usage adapter's current `0.159.2` support, so its usage remains unknown until that version is validated.
 
 - Version-limited cumulative usage collector: supplied thread/session/epoch identities are required, duplicate snapshots count once, explicitly separated epochs add, unexplained counter decreases become unknown. Output includes reasoning; do not add reasoning twice. Missing/invalid/unsupported values remain null.
 - Read-only transcript CLI streams events, suppresses transcript content, recovers only an unterminated final JSON fragment, rejects interior corruption and mismatched metadata versions. Its measured scope is session, not complete task; worker coverage remains false.
