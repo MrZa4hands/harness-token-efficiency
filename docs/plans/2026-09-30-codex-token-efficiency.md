@@ -10,7 +10,7 @@
 
 **Spec:** [Pilot specification](../codex-token-efficiency-spec.md), R1–R8 and phases 0–4. Also read [AGENTS.md](../../AGENTS.md), [README.md](../../README.md), and [research](../codex-token-efficiency-proposal.md).
 
-**Status:** Prepared on 2026-09-30; awaiting Roe's plan review and execution-method selection. Preparing this document does not start implementation, installation, or paid inference.
+**Status:** Roe authorized implementation on 2026-10-01. Native inline execution selected; phase 0A is in progress. Remote develop is synchronized. Current-interface compatibility and native trust remain pending; no optimizer operation is activated.
 
 **read_when:** Before implementing a phase, opening its PR, or resuming after compaction.
 
@@ -338,6 +338,6 @@ Traceability: R1 → 0A/2B; R2 → 2B; R3 → 1A/1B; R4 → 0B/2A/3A/4A; R5 → 
 
 ## Handoff
 
-Await Roe's review and execution-method choice. Recommend **native execution** with `superpowers:executing-plans` because tasks share sequential interfaces and each PR has exactly two mandated review stages. If Roe chooses subagents, preserve that choice while omitting extra independent review gates; wait for all agents before yielding.
+Roe authorized implementation. Use **native execution** with `superpowers:executing-plans`; tasks share sequential interfaces and each PR has exactly two mandated review stages. If Roe chooses subagents, preserve that choice while omitting extra independent review gates; wait for all agents before yielding.
 
 Before implementation: reviewed plan, selected method, valid develop/delivery remote, and phase 0 opening checks. Planning changes only this document and its README entry; no implementation, branch changes, hook installation, credentials, or Jev inference.
