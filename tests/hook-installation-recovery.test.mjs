@@ -224,7 +224,9 @@ test('lock_release_failures_preserve_structured_applied_result', async () => {
     } finally { fs.unlink = originalUnlink; fs.open = originalOpen; syncBuiltinESMExports(); }
     assert.equal(unlinkAttempted, true);
     assert.equal(result.changed, true);
-    assert.equal(result.files.length, 3);
+    assert.equal(result.files.length, 4);
+    assert.ok(result.files.includes(join(root, '.agents/skills/codex-context-operations')),
+      'Even a failed lock release must report the successfully applied native skill registration');
     assert.match(result.error, /lock/i);
   }
 });
