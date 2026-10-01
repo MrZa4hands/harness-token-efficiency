@@ -101,7 +101,7 @@ export async function storeContextResult(bundle, request) {
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
     const existing = await readContext({ ...request, reference });
-    if (existing.status !== 'ok') throw new Error('Context result existing artifact rejected.');
+    if (existing.full_result !== reference) throw new Error('Context result existing artifact rejected.');
     return existing;
   }
   finally { await file?.close(); }
@@ -136,12 +136,19 @@ export async function readContext(request) {
     const artifact = JSON.parse(text); const bundle = artifact.bundle;
     if (artifact.schema_version !== 2 || artifact.repo_root !== root || artifact.session_id !== request.session_id ||
         !Number.isFinite(Date.parse(artifact.created_at)) || Date.parse(artifact.created_at) < Date.now() - 7 * 86400000 ||
-        Date.parse(artifact.created_at) > Date.now() || !bundle || bundle.status !== 'ok' || !Array.isArray(bundle.entries))
+        Date.parse(artifact.created_at) > Date.now() || !bundle ||
+        !(bundle.status === 'ok' || bundle.kind === 'project-check' && ['error', 'cancelled', 'timeout', 'denied'].includes(bundle.status)) ||
+        !Array.isArray(bundle.entries))
       throw new Error('Context result provenance rejected.');
-    const paths = bundle.entries.filter(entry => entry.kind !== 'change' && entry.source !== 'git-blob').map(entry => entry.path);
+    const checkOutput = bundle.kind === 'project-check';
+    if (checkOutput && !bundle.entries.every(entry => entry.kind === 'check-output' && ['stdout', 'stderr'].includes(entry.stream) &&
+        entry.path === entry.stream && ['utf8', 'base64'].includes(entry.encoding) && typeof entry.content === 'string' &&
+        resultHash(entry.encoding === 'base64' ? Buffer.from(entry.content, 'base64') : entry.content) === entry.sha256))
+      throw new Error('Context result check output rejected.');
+    const paths = checkOutput ? [] : bundle.entries.filter(entry => entry.kind !== 'change' && entry.source !== 'git-blob').map(entry => entry.path);
     const snapshot = await captureRepositorySnapshot(root, signal, paths);
     const currentHashes = new Map(snapshot.files.map(file => [file.path, file.sha256]));
-    if (snapshot.repo_revision !== bundle.repo_revision || bundle.entries.some(entry => entry.kind === 'change'
+    if (snapshot.repo_revision !== bundle.repo_revision || !checkOutput && bundle.entries.some(entry => entry.kind === 'change'
       ? (entry.source_sha256 !== null && currentHashes.get(entry.path) !== entry.source_sha256)
       : entry.source !== 'git-blob' && currentHashes.get(entry.path) !== entry.sha256))
       throw new Error('Repository context revision changed.');

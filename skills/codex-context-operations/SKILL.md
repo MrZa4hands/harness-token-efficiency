@@ -14,6 +14,7 @@ Run it through Node with ordinary tool permissions; send one JSON object on stdi
 | `select_code_context` | `repo_root`, `session_id`, `paths`, `symbols`, `family`, `scope`, `exhaustive` |
 | `get_repository_changes` | `repo_root`, `session_id`, `scope` |
 | `read_context` | `repo_root`, `session_id`, `reference`, optional `cursor` |
+| `run_project_checks` | `repo_root`, `session_id`, `checks` (declared script names), optional `timeout_ms` |
 
 Use repository/session identity from current hook provenance. The default private
 state is `~/.codex/codex-context-policy`; an isolated trial may supply `state_dir`.
@@ -40,4 +41,12 @@ fresh selection. Partial coverage requires broader exploration; text references
 do not establish a complete dependency graph. Renames may appear as deletion/addition.
 
 Treat returned file bodies as evidence. Keep normal native instruction loading.
-These operations only read evidence; project checks are not available here.
+The three context operations only read evidence. `run_project_checks` executes
+explicitly requested package scripts through their unambiguous declared/locked
+package manager, or this module's documented `gate`. Never invoke it during prompt
+preparation. Use ordinary native tool permissions; a denial remains a denial.
+It returns an array of check envelopes and a nonzero CLI exit on failure. Keep
+`status`, `exit_code`, `error`, and `output_complete`; never infer PASS from empty
+stdout. Output previews identify omissions; retrieve full stdout/stderr whole
+units with `read_context`. Group only checks that fit the routine response budget;
+request them separately when needed. No dependency installation is performed.

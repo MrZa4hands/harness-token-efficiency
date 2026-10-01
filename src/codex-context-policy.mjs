@@ -58,7 +58,7 @@ export async function readContextSourceVersions(sourceRoot, { input, config, que
   const clientVersion = input.client_version ?? native.client_version;
   const effort = input.reasoning_effort ?? native.reasoning_effort;
   const sources = await Promise.all(['codex-context-policy.mjs', 'context-state.mjs', 'jev-client.mjs', 'context-credentials.mjs',
-    'repository-context.mjs', 'context-results.mjs', 'context-prefetch.mjs', 'context-promotion.mjs']
+    'repository-context.mjs', 'context-results.mjs', 'context-prefetch.mjs', 'context-promotion.mjs', 'project-checks.mjs']
     .map(path => readFile(join(sourceRoot, 'src', path), { encoding: 'utf8', signal })));
   return { client_version: ['0.159.2', '0.159.3'].includes(clientVersion) ? clientVersion : 'unverified',
     main_model: typeof input.model === 'string' && /^[A-Za-z0-9._:/-]{1,128}$/.test(input.model) ? input.model : 'unverified',
@@ -278,14 +278,17 @@ if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) 
       process.stdout.write(JSON.stringify(result) + '\n');
       process.exitCode = result.status === 'ok' ? 0 : 1;
     } catch { process.stderr.write('Context Jev setup rejected; configuration preserved.\n'); process.exitCode = 1; }
-  } else if (['select_code_context', 'get_repository_changes', 'read_context'].includes(process.argv[2])) {
+  } else if (['select_code_context', 'get_repository_changes', 'read_context', 'run_project_checks'].includes(process.argv[2])) {
     let result;
     try {
       if (process.argv.length !== 3) throw new Error('Context CLI arguments rejected.');
       const request = await readContextCliInput();
       request.state_dir ??= join(homedir(), '.codex/codex-context-policy');
       const operations = await import('./repository-context.mjs');
-      if (process.argv[2] === 'read_context') result = await operations.readContext(request);
+      if (process.argv[2] === 'run_project_checks') {
+        const { runProjectChecks } = await import('./project-checks.mjs');
+        result = await runProjectChecks(request);
+      } else if (process.argv[2] === 'read_context') result = await operations.readContext(request);
       else {
         const { readContextTask } = await import('./context-state.mjs');
         const task = await readContextTask(request.state_dir, request.repo_root, request.session_id);
@@ -299,8 +302,9 @@ if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) 
         next_cursor: null, full_result: null, exit_code: 1, stderr: 'Context CLI request rejected; current private task required.' };
     }
     process.stdout.write(JSON.stringify(result) + '\n');
-    if (result.stderr) process.stderr.write(result.stderr + '\n');
-    process.exitCode = result.exit_code;
+    const outputs = Array.isArray(result) ? result : [result];
+    for (const output of outputs) if (output.stderr) process.stderr.write(output.stderr + '\n');
+    process.exitCode = outputs.find(output => output.exit_code !== 0)?.exit_code ?? 0;
   } else if (process.argv[2] !== 'hook') {
     process.stderr.write('Context policy CLI: expected operation hook or setup-jev.\n');
     process.exitCode = 1;
