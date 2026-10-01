@@ -39,7 +39,7 @@ All runtime paths start unverified and disabled. The installed CLI's version alo
 
 ## Progress
 
-Task 0A started. Reviews, release documentation, PR, and merge remain pending.
+Tasks 0A and 0B implemented and validated for the observed paths. Reviews, release documentation, PR, and merge remain pending; phase 0 is not closed.
 
 ## Task 0A RED/GREEN
 
@@ -61,7 +61,7 @@ Then request a harmless direct `pwd` command, and separately nested tool executi
 
 Manually compact and resume the same session using the client's supported controls. Record observed events and unsupported/unverified paths. SessionEnd requires actually ending the main session. Disable or remove probe definitions after the test; do not mark production coverage supported from unit tests or version detection alone.
 
-Coverage is partial. Native trust and the observed paths below are confirmed; remaining interface paths and complete-task usage remain unverified. Task 0A is not complete.
+Coverage is partial. Native trust and the observed paths below are confirmed; remaining interface paths and automatic complete-task usage remain unverified. Only verified events may be registered for the policy.
 
 ### Linked Worktree Discovery Correction
 
@@ -103,11 +103,15 @@ The parent contains six usage records and the worker two, each with distinct res
 
 Automatic worker discovery remains unimplemented. The worker transcript also contains inherited parent metadata and task-start history, so the conservative single-session transcript reader rejects its changing identity rather than attributing those counters incorrectly. This manual validation establishes the observed counter relationships; it does not make the CLI's session-only output complete-task measurement or permit promotion.
 
-### Pending Native Policy Trust
+### Native Policy Trust and Off Trial
 
 After the verified marker and installer checks, the manager installed the real UserPromptSubmit handler at the primary checkout in mode `off`. Coverage permits only that event for the observed Desktop and codex_exec 0.159.2 clients; other policy events remain unregistered. The six temporary probe definitions are preserved. Policy and ownership receipt stay in the phase-0 worktree.
 
-The desktop engine's native `hooks/list` discovers the real handler from the primary checkout with command ending `src/codex-context-policy.mjs' hook` and trust status `untrusted`. The discovery request performs no inference. Native trust of this distinct command remains a required manual installation step; trust of the probe command does not authorize it. No trust state was written by the agent. In App, use Settings → Hooks → From Projects, reload the project hooks, and inspect this UserPromptSubmit handler before selecting Trust. After trust, the native off-mode trial can be completed. The installed source still refers to the temporary worktree, so cleanup is unsafe until registration is safely relocated or removed.
+The desktop engine's native `hooks/list` initially discovered the real handler from the primary checkout with command ending `src/codex-context-policy.mjs' hook` and trust status `untrusted`. Roe then authorized this distinct command through the native client. A fresh discovery request confirms exactly one policy handler with status `trusted` and the expected primary source. No trust state was written by the agent; discovery performs no inference.
+
+A subsequent actual CLI 0.159.2 `codex_exec` trial in the phase-0 worktree completed successfully with the exact requested reply, no tool calls, and mode still `off`. The private probe log records SessionStart, UserPromptSubmit, and SessionEnd for that trial; stderr contains no hook failure or untrusted-hook diagnostic. The CLI does not export an isolated completion record for the silent policy handler, so this is a trusted native off-mode installation trial, not per-handler telemetry. The installed source still refers to the temporary worktree, so cleanup is unsafe until registration is safely relocated or removed.
+
+Phase-0 completion ruling: the specification's compatibility matrix permits unsupported/unverified paths to stay disabled, and its usage contract permits indicators when complete-task measurement is unavailable. The implemented deliverables establish actual pre-prompt delivery in both interfaces, additive installation and native trust, version-limited real usage, independent worker counter validation, and the initial corpus. Automatic worker discovery and unobserved paths remain explicit limitations; neither token promotion nor savings claims are permitted. The phase still requires its PR, exactly two review stages, release documentation, and merge before phase 1.
 
 ## Usage Source Reconnaissance
 
@@ -115,7 +119,7 @@ Read metadata and token-counter shapes from twelve recent local session logs wit
 
 ## Checkpoint
 
-Node syntax, configuration JSON, and the 500-line file limit checks passed. Task 0A remains incomplete pending remaining real-client integration cases. No PR review, merge, promotion, or token-savings claim has occurred. The feature commit is a resumable checkpoint; later phases have not started.
+At the earlier checkpoint, node syntax, configuration JSON, and the 500-line file limit checks passed while native installation was incomplete. The subsequent evidence above closes that installation check. No PR review, merge, promotion, or token-savings claim has occurred; later phases have not started.
 
 ## Task 0B Checkpoint
 
@@ -129,11 +133,11 @@ Roe uses both Codex App and CLI. Maintain independent coverage and client-versio
 - RED observed before implementation: usage collector, transcript CLI, missing corpus, fixture materialization, and gate failure detection. Regression RED observed for unstaged rename identification and inherited Git directory redirection; both are green after owner-boundary corrections.
 - `rtk proxy node scripts/verify-context-policy.mjs`: exit 0; nine tests pass. Syntax, JSON/JSONL, corpus, local document links, 500-line limit, and repository scope checks pass. External sibling reference links resolve from the primary checkout under AGENTS.md. Node test engine markers are removed for fresh check subprocesses, so nested checks execute rather than silently skip.
 
-Tasks 0A and 0B remain incomplete pending native dual-client integration and complete-task measurement validation. Phase 0 has no PR yet; both mandated reviews, release documentation, and merge remain pending. No subsequent phase or optimizer promotion has begun.
+Tasks 0A and 0B now meet the limited compatibility and measurement deliverables described above. Phase 0 has no PR yet; both mandated reviews, release documentation, and merge remain pending. No subsequent phase or optimizer promotion has begun.
 
 ## Updated Verification
 
 - The real CLI 0.159.3 source contains thirteen cumulative counter events matching the same validated six-field contract, with no unexplained decrease. Its adapter support first failed the regression assertion `null !== 150`, then passed after adding this exact observed version. Metadata/version mismatches and unseen versions still fail closed. Its real session adapter returns available session totals with worker coverage false.
 - `rtk proxy node scripts/verify-context-policy.mjs`: eleven tests plus syntax, JSON/corpus, document links, and source scope pass. No raw transcript, session identities, or exact private-session totals were exported into repository artifacts.
 - Parent/worker counters were validated against a real completed native CLI task. Automatic task-wide discovery remains unverified, and session-only CLI reports retain worker coverage false.
-- Remaining integration cases stay unverified and disabled. The real off-mode policy handler is discoverable but awaits its own native trust; phase 0 remains incomplete and token savings are unmeasured.
+- The real off-mode policy handler is natively trusted and its actual CLI installation trial completes without tools or hook diagnostics. Remaining integration paths stay unverified and disabled; phase-0 delivery remains pending the required PR lifecycle, and token savings are unmeasured.
