@@ -89,9 +89,12 @@ export async function handleCodexHook(input, sourceRoot) {
     const policySources = await Promise.all(['codex-context-policy.mjs', 'context-state.mjs', 'jev-client.mjs', 'context-credentials.mjs']
       .map(path => readFile(new URL(path, import.meta.url), 'utf8')));
     const versions = { client_version: typeof input.client_version === 'string' && /^\d+\.\d+\.\d+$/.test(input.client_version) ? input.client_version : 'unverified',
-      jev_model: null, config_revision: config.config_revision, questions_hash: createHash('sha256').update(JSON.stringify(questions)).digest('hex'),
+      jev_model: null, jev_requested_model: config.jev_model ?? null, config_revision: config.config_revision,
+      questions_hash: createHash('sha256').update(JSON.stringify(questions)).digest('hex'),
       policy_hash: createHash('sha256').update(JSON.stringify({ config, sources: policySources })).digest('hex') };
     state = await captureContextTask({ ...input, signal, versions }, previous);
+    if (previous && previous.versions.jev_requested_model !== versions.jev_requested_model) state.expected_jev_model = null;
+    state.expected_jev_model = config.jev_actual_model ?? state.expected_jev_model;
     if (previous && previous.versions.config_revision !== versions.config_revision) {
       state.continuity = 'unknown'; state.history_gap = true;
     }

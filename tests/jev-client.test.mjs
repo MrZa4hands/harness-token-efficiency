@@ -327,6 +327,56 @@ test('shadow_hook_queries_jev_only_for_unresolved_safe_requests', async () => {
     assert.deepEqual(driftRecord.provider_usage, { input_tokens: 170, output_tokens: 18 });
     globalThis.fetch = concurrentFetch;
 
+    // Deliberate model selection must recover without losing same-alias drift protection.
+    let selectedActual = 'jev-fixture-actual'; let selectionCalls = 0;
+    globalThis.fetch = async () => {
+      selectionCalls++;
+      const response = goodResponse(); response.model = selectedActual;
+      response.answers.continues_active_goal.noul = 0.99;
+      return new Response(JSON.stringify(response));
+    };
+    const selectedInput = { ...input, session_id: 'model-selection' };
+    const selectedPath = join(repositoryPath, createHash('sha256').update(selectedInput.session_id).digest('hex'));
+    await handleCodexHook(selectedInput);
+    const selectedConfig = { ...config, jev_model: 'jev-fixture-selected' };
+    assert.equal((await configureJevModel(root, { apiKey: 'fixture-key', model: selectedConfig.jev_model,
+      fetchImpl: async () => new Response(JSON.stringify({ models: [{ name: selectedConfig.jev_model,
+        description: 'Selected fixture', release_date: '2026-09-15' }] })) })).status, 'ok');
+    await handleCodexHook({ ...selectedInput, turn_id: 'selection-gap', prompt: 'hazlo' });
+    await handleCodexHook({ ...selectedInput, turn_id: 'selection-recovery', prompt: 'Inspect `example.mjs`.' });
+    assert.equal(selectionCalls, 1, 'A changed configuration cannot query across missing history');
+    selectedActual = 'jev-fixture-selected-actual';
+    for (const turn_id of ['selection-first', 'selection-second']) {
+      assert.equal((await handleCodexHook({ ...selectedInput, turn_id })).stderr, '');
+      const records = await Promise.all((await readdir(selectedPath)).filter(name => name.startsWith('decision-'))
+        .map(async name => JSON.parse(await readFile(join(selectedPath, name), 'utf8'))));
+      const decision = records.find(record => record.turn_hash === createHash('sha256').update(turn_id).digest('hex'));
+      assert.equal(decision.fallback_reason, null, 'A deliberately selected alias must not retain the former actual model');
+      assert.equal(decision.versions.jev_model, selectedActual);
+    }
+    await handleCodexHook({ ...selectedInput, turn_id: 'selection-local', prompt: 'hazlo' });
+    selectedActual = 'jev-fixture-unselected-actual';
+    await handleCodexHook({ ...selectedInput, turn_id: 'selection-drift' });
+    const selectionRecords = await Promise.all((await readdir(selectedPath)).filter(name => name.startsWith('decision-'))
+      .map(async name => JSON.parse(await readFile(join(selectedPath, name), 'utf8'))));
+    assert.equal(selectionRecords.find(record => record.turn_hash === createHash('sha256').update('selection-drift').digest('hex')).fallback_reason,
+      'changed-actual-model', 'Only explicit alias selection may reset the model expectation');
+    selectedActual = 'jev-fixture-explicit-pin';
+    for (const pinned of [true, false]) {
+      const turn_id = pinned ? 'pin-set' : 'pin-removed';
+      await writeFile(configPath, JSON.stringify({ ...selectedConfig, ...(pinned ? { jev_actual_model: selectedActual } : {}) }));
+      await handleCodexHook({ ...selectedInput, turn_id: turn_id + '-gap', prompt: 'hazlo' });
+      await handleCodexHook({ ...selectedInput, turn_id: turn_id + '-recovery', prompt: 'Inspect `example.mjs`.' });
+      assert.equal((await handleCodexHook({ ...selectedInput, turn_id })).stderr, '');
+      const records = await Promise.all((await readdir(selectedPath)).filter(name => name.startsWith('decision-'))
+        .map(async name => JSON.parse(await readFile(join(selectedPath, name), 'utf8'))));
+      const decision = records.find(record => record.turn_hash === createHash('sha256').update(turn_id).digest('hex'));
+      assert.equal(decision.fallback_reason, null, 'Removing an admitted explicit pin must not resurrect its predecessor');
+      assert.equal(decision.versions.jev_model, selectedActual);
+    }
+    await writeFile(configPath, JSON.stringify(config));
+    globalThis.fetch = concurrentFetch;
+
     const beforeOffCalls = concurrentCalls;
     await handleCodexHook({ ...input, session_id: 'off-gap', prompt: 'Inspect `example.mjs`.' });
     await writeFile(configPath, JSON.stringify({ ...config, mode: 'off' }));
