@@ -9,6 +9,9 @@ import { homedir } from 'node:os';
 
 const contextModes = new Set(['off', 'shadow', 'enforce']);
 
+/** No local context command rewrite: RTK 0.49.0 changes diagnostics and native permission equivalence is unverified. */
+export function rewriteContextCommand(command) { return null; }
+
 async function readNativeContextIdentity(input, signal) {
   let file;
   try {
