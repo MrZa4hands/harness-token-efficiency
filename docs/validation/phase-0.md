@@ -49,11 +49,11 @@ Task 0A started. Reviews, release documentation, PR, and merge remain pending.
 - `rtk proxy git diff --check`: exit 0.
 - Existing hooks retain order, unknown handlers, metadata, and file permissions. Dry run writes nothing; repeat install is unchanged; removal preserves later foreign additions.
 - Production installation filters events through project-local verified coverage; no coverage means no registered optimizer handlers.
-- Native probe definition: `.codex/hooks.json` in this worktree. Runtime configuration/logs are ignored and private, never source copies. No native trust changes or bypass flags were applied.
+- Native probe definition: `.codex/hooks.json` in the primary checkout. The probe source and private log remain in the implementation worktree. Runtime registration is ignored locally; no native trust changes or bypass flags were applied.
 
 ## Native Probe Procedure
 
-Use the current interface and its unchanged model/effort in this worktree. Review the exact `.codex/hooks.json` definition in the native hook browser and authorize it there. For CLI, use `/hooks`.
+Use the current interface and its unchanged model/effort in this worktree. Restart the CLI after registration. Review the primary checkout's exact `.codex/hooks.json` definition in the native hook browser and authorize it there. For CLI, use `/hooks`; open `UserPromptSubmit`, select the new hook whose command contains `tests/context-hook-probe.mjs`, and use the displayed trust control after review. Repeat for the other probe events.
 
 Submit: `Report the compatibility probe marker from hook context exactly, or say absent. Do not read any files or invoke tools.` Compare the answer with the private expected marker in this plan's scratch workspace; the prompt itself does not contain the marker.
 
@@ -62,6 +62,14 @@ Then request a harmless direct `pwd` command, and separately nested tool executi
 Manually compact and resume the same session using the client's supported controls. Record observed events and unsupported/unverified paths. SessionEnd requires actually ending the main session. Disable or remove probe definitions after the test; do not mark production coverage supported from unit tests or version detection alone.
 
 Native coverage, trust, and current-interface task usage remain unverified; Task 0A is not complete.
+
+### Linked Worktree Discovery Correction
+
+On 2026-10-01, CLI 0.159.2 reproduced Roe's missing-hook report in a fresh `--no-daemon` session with the phase-0 worktree as cwd. The native `config/read` API reported an enabled project layer, but `hooks/list` omitted all six worktree-local probe definitions. Adding an empty worktree `config.toml` did not change discovery; that diagnostic file was moved to Trash.
+
+Registering the same probe definitions at the primary checkout's `.codex/hooks.json` made all six appear in `hooks/list`, each with `trustStatus: untrusted`, without warnings or errors. The actual CLI startup then showed `Hooks need review` and `6 hooks are new or changed`. `/hooks` showed `UserPromptSubmit` with three installed, two active, and one pending review; its new `Hook 1` identified the primary checkout source and the worktree probe command. No inference or trust approval was performed during this discovery check.
+
+This installed CLI resolves native hook registration through the primary checkout for linked worktrees. Registration there is runtime state permitted by AGENTS.md; implementation source remains in the feature worktree. The manager's project-local target must follow this observed installation location; do not infer that a successful write to a linked worktree is discoverable. Runtime event execution and App discovery remain unverified. The original worktree-only trust instructions were incorrect.
 
 ## Usage Source Reconnaissance
 
