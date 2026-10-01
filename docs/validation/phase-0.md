@@ -25,17 +25,17 @@ read_when: Before resuming phase 0 or assessing compatibility evidence.
 
 All runtime paths start unverified and disabled. The installed CLI's version alone does not prove current-interface coverage. Native trust must be granted through the client; no trust records or bypass flags are written.
 
-| Path | Status |
-|---|---|
-| UserPromptSubmit | unverified |
-| Direct Bash PreToolUse/PostToolUse | unverified |
-| Nested tools | unverified |
-| Local MCP | unverified |
-| Hosted MCP | unverified |
-| Persistent commands | unverified |
-| PostCompact | unverified |
-| SessionStart/resume | unverified |
-| SessionEnd | unverified |
+| Path | App status | CLI status |
+|---|---|---|
+| UserPromptSubmit | unverified | unverified |
+| Direct Bash PreToolUse/PostToolUse | unverified | unverified |
+| Nested tools | unverified | unverified |
+| Local MCP | unverified | unverified |
+| Hosted MCP | unverified | unverified |
+| Persistent commands | unverified | unverified |
+| PostCompact | unverified | unverified |
+| SessionStart/resume | unverified | unverified |
+| SessionEnd | unverified | unverified |
 
 ## Progress
 
@@ -70,3 +70,17 @@ Read metadata and token-counter shapes from twelve recent local session logs wit
 ## Checkpoint
 
 Node syntax, configuration JSON, and the 500-line file limit checks passed. Task 0A remains incomplete pending native trust and real-client integration. No PR review, merge, promotion, or token-savings claim has occurred. The feature commit is a resumable checkpoint; later phases have not started.
+
+## Task 0B Checkpoint
+
+Roe uses both Codex App and CLI. Maintain independent coverage and client-version evidence; CLI evidence never proves App support. The native probe has not produced a real-client log yet.
+
+- Version-limited cumulative usage collector: supplied thread/session/epoch identities are required, duplicate snapshots count once, explicitly separated epochs add, unexplained counter decreases become unknown. Output includes reasoning; do not add reasoning twice. Missing/invalid/unsupported values remain null.
+- Read-only transcript CLI streams events, suppresses transcript content, recovers only an unterminated final JSON fragment, rejects interior corruption and mismatched metadata versions. Its measured scope is session, not complete task; worker coverage remains false.
+- A real observed 0.159.2 session was read successfully: adapter exit 0 and counters available. No transcript or exact private-session totals were copied into repository artifacts. Complete-task and worker-inclusive usage remain unverified.
+- Corpus: 60 held-out cases (ten per category) and six distinct tuning conversations. Each pins revision, fixture hash/state, expected checks, required evidence, and independently annotated outcome assertions. The reproducible fixture has 533 tracked files, an executable indirect dependency chain, Unicode/newline names, staged/unstaged changes, rename, deletion, untracked addition, and a declared long-stderr exit-7 check. Human assessment of assertions remains part of pilot evaluation; these cases are not measured runs.
+- Synthetic fixture Git processes isolate inherited Git environment/configuration, use fixed identity/date and an empty destination, and preserve the same baseline SHA across separate roots and dirty profiles. No dependency installation, paid inference, or extra server is needed.
+- RED observed before implementation: usage collector, transcript CLI, missing corpus, fixture materialization, and gate failure detection. Regression RED observed for unstaged rename identification and inherited Git directory redirection; both are green after owner-boundary corrections.
+- `rtk proxy node scripts/verify-context-policy.mjs`: exit 0; nine tests pass. Syntax, JSON/JSONL, corpus, local document links, 500-line limit, and repository scope checks pass. External sibling reference links resolve from the primary checkout under AGENTS.md. Node test engine markers are removed for fresh check subprocesses, so nested checks execute rather than silently skip.
+
+Tasks 0A and 0B remain incomplete pending native dual-client integration and complete-task measurement validation. Phase 0 has no PR yet; both mandated reviews, release documentation, and merge remain pending. No subsequent phase or optimizer promotion has begun.
