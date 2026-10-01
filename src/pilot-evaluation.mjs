@@ -1,4 +1,4 @@
-import { readFile, mkdir, readdir, writeFile, rename, unlink, open } from 'node:fs/promises';
+import { readFile, mkdir, readdir, writeFile, rename, unlink, open, realpath } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { execFileSync } from 'node:child_process';
@@ -93,7 +93,8 @@ export async function materializePilotFixture(repoRoot, variant = 'baseline') {
     GIT_COMMITTER_NAME: 'Pilot Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
     GIT_AUTHOR_DATE: '2026-01-01T00:00:00+00:00', GIT_COMMITTER_DATE: '2026-01-01T00:00:00+00:00' };
   const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
-    '-c', 'core.autocrlf=false', ...args], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    '-c', 'core.autocrlf=false', '-c', 'core.excludesFile=/dev/null', '-c', 'core.attributesFile=/dev/null',
+    ...args], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   git(['init', '--initial-branch=fixture-base', '--object-format=sha1']);
   git(['add', '--all']);
   git(['commit', '-m', 'test: establish reproducible issue report fixture']);
@@ -118,13 +119,16 @@ export async function materializePilotFixture(repoRoot, variant = 'baseline') {
 async function readCodexTranscript(transcriptPath, clientVersion) {
   const file = await open(transcriptPath, 'r');
   let finalNewline;
+  let snapshotSize;
   try {
     const stat = await file.stat();
+    snapshotSize = stat.size;
     const lastByte = Buffer.alloc(1);
     if (stat.size) await file.read(lastByte, 0, 1, stat.size - 1);
     finalNewline = stat.size > 0 && lastByte[0] === 10;
   } finally { await file.close(); }
-  const stream = createReadStream(transcriptPath, { encoding: 'utf8' });
+  if (snapshotSize === 0) return { usage: unknownCodexUsage(), trailingIncomplete: false };
+  const stream = createReadStream(transcriptPath, { encoding: 'utf8', end: snapshotSize - 1 });
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
   const events = [];
   let sessionId;
@@ -135,7 +139,12 @@ async function readCodexTranscript(transcriptPath, clientVersion) {
       if (invalidFinalLine !== undefined) throw new Error('Codex usage transcript has a corrupt interior line');
       if (!line.trim()) continue;
       let event;
-      try { event = JSON.parse(line); } catch { invalidFinalLine = line; continue; }
+      try { event = JSON.parse(line); } catch (error) {
+        const position = / in JSON at position (\d+) \(line \d+ column \d+\)$/.exec(error.message);
+        invalidFinalLine = { text: line, incomplete: error instanceof SyntaxError &&
+          (error.message === 'Unexpected end of JSON input' || (position && Number(position[1]) === line.length)) };
+        continue;
+      }
       if (event?.type === 'session_meta') {
         const metadata = event.payload;
         if (metadata?.cli_version !== clientVersion || typeof metadata?.id !== 'string') throw new Error('Codex usage transcript version or identity mismatch');
@@ -147,14 +156,15 @@ async function readCodexTranscript(transcriptPath, clientVersion) {
       }
     }
     if (invalidFinalLine !== undefined) {
-      if (finalNewline || !invalidFinalLine.trim().startsWith('{') || invalidFinalLine.trim().endsWith('}')) throw new Error('Codex usage transcript has a corrupt final line');
+      if (finalNewline || !invalidFinalLine.incomplete || !invalidFinalLine.text.trim().startsWith('{')) throw new Error('Codex usage transcript has a corrupt final line');
       trailingIncomplete = true;
     }
   } finally { lines.close(); stream.destroy(); }
   return { usage: collectCodexUsage(events, clientVersion), trailingIncomplete };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+const evaluationEntryPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;
+if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath).href) {
   const args = process.argv.slice(2);
   const command = args.shift();
   const options = {};

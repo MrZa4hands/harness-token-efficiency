@@ -56,7 +56,12 @@ try {
         if (!destination.startsWith('/') && relative(root, referencePath).startsWith('..')) {
           referencePath = resolve(primaryCheckout, dirname(path), destination);
         }
-        await access(referencePath).catch(() => reportGateFailure('Broken local document link in ' + path + ': ' + destination));
+        await access(referencePath).catch(() => {
+          const reference = relative(root, referencePath);
+          if (reference === '..' || reference.startsWith('../')) {
+            process.stderr.write('Context policy gate warning: unavailable external reference in ' + path + ': ' + destination + '\n');
+          } else reportGateFailure('Broken local document link in ' + path + ': ' + destination);
+        });
       }
     }
   }

@@ -1,10 +1,13 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { collectCodexUsage, validatePilotCorpus, materializePilotFixture } from '../src/pilot-evaluation.mjs';
+
+const temporaryRoot = await mkdtemp(join(tmpdir(), 'context-evaluation-tests-'));
+after(() => assert.equal(spawnSync('trash', [temporaryRoot]).status, 0));
 
 const usage = (input, output = 20, reasoning = 5) => ({
   input_tokens: input, cached_input_tokens: 10, cache_write_input_tokens: 0,
@@ -48,7 +51,7 @@ test('usage_totals_and_corpus', () => {
 // The observed CLI version must measure its matching envelope while unknown versions abstain.
 test('observed_cli_01593_usage_remains_version_limited', async () => {
   assert.equal(collectCodexUsage([event(80), event(80), event(130)], '0.159.3').total_tokens, 150);
-  const root = await mkdtemp(join(tmpdir(), 'context-usage-01593-'));
+  const root = await mkdtemp(join(temporaryRoot, 'context-usage-01593-'));
   const path = join(root, 'session.jsonl');
   const lines = [{ type: 'session_meta', payload: { id: 'main', cli_version: '0.159.3' } },
     ...[80, 80, 130].map(input => ({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage(input) } } }))];
@@ -64,7 +67,7 @@ test('observed_cli_01593_usage_remains_version_limited', async () => {
 
 // CLI must report unknown instead of printing source content or guessing client versions.
 test('transcript_reader_recovers_trailing_line_and_rejects_corruption', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'context-usage-'));
+  const root = await mkdtemp(join(temporaryRoot, 'context-usage-'));
   const path = join(root, 'session.jsonl');
   const metadata = { type: 'session_meta', payload: { id: 'main', cli_version: '0.159.2' } };
   const count = input => ({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage(input) } } });
@@ -89,6 +92,35 @@ test('transcript_reader_recovers_trailing_line_and_rejects_corruption', async ()
   assert.equal(mismatched.status, 1);
   assert.equal(JSON.parse(mismatched.stdout).available, false);
   assert.match(mismatched.stderr, /version/);
+  for (const fragment of ['{"invalid":]', '{"bad":00', '{"unicode":"\\uXX', '{"literal":truX']) {
+    await writeFile(path, lines + fragment);
+    const malformed = run();
+    assert.equal(malformed.status, 1, 'Impossible JSON prefixes must not become recovered usage');
+    assert.equal(JSON.parse(malformed.stdout).total_tokens, null);
+    assert.equal(malformed.stdout.includes(fragment), false);
+    assert.equal(malformed.stderr.includes(fragment), false);
+  }
+});
+
+// A live append after the size/last-byte check must not change the measured snapshot.
+test('transcript_reader_bounds_a_growing_file_to_its_initial_size', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'context-growing-transcript-'));
+  const path = join(root, 'session.jsonl');
+  const program = resolve('src/pilot-evaluation.mjs');
+  const metadata = { type: 'session_meta', payload: { id: 'main', cli_version: '0.159.2' } };
+  const count = input => ({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: usage(input) } } });
+  await writeFile(path, [metadata, count(130)].map(value => JSON.stringify(value)).join('\n') + '\n');
+  const injected = `import fs from 'node:fs/promises'; import { syncBuiltinESMExports } from 'node:module';
+    import { pathToFileURL } from 'node:url'; const originalOpen = fs.open;
+    fs.open = async (...args) => { const handle = await originalOpen(...args); const originalRead = handle.read.bind(handle);
+      handle.read = async (...readArgs) => { const result = await originalRead(...readArgs);
+        await fs.appendFile(args[0], ${JSON.stringify(JSON.stringify(count(230)) + '\n')}); return result; }; return handle; };
+    syncBuiltinESMExports(); const program = process.argv[1]; const transcript = process.argv[2];
+    process.argv = [process.execPath, program, 'usage', '--transcript', transcript, '--client-version', '0.159.2'];
+    await import(pathToFileURL(program).href);`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', injected, program, path], { encoding: 'utf8' });
+  assert.equal(child.status, 0);
+  assert.equal(JSON.parse(child.stdout).total_tokens, 150);
 });
 
 test('held_out_corpus_has_sixty_verifiable_cases_and_separate_tuning', async () => {
@@ -103,12 +135,16 @@ test('held_out_corpus_has_sixty_verifiable_cases_and_separate_tuning', async () 
     assert.equal(heldOut.filter(task => task.category === category).length, 10);
   }
   assert.ok(tasks.some(task => task.split === 'tuning'));
+  const fixture = JSON.parse(await readFile(resolve('evaluation/pilot-fixture.json'), 'utf8'));
+  const declaredChecks = JSON.parse(fixture.files['package.json']).scripts;
+  assert.ok(tasks.every(task => task.expected_checks.every(check => Object.hasOwn(declaredChecks, check))),
+    'Required checks must use declared project check identities, with exact scope in the outcome assertions');
 
 });
 
 // Real fixture materialization proves repository size and executable indirect calls.
 test('pilot_fixture_is_reproducible_and_has_real_indirect_dependencies', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'context-pilot-fixture-'));
+  const root = await mkdtemp(join(temporaryRoot, 'context-pilot-fixture-'));
   const materialized = await materializePilotFixture(root);
   assert.equal(typeof materialized?.initial_revision, 'string');
   const git = args => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -121,16 +157,32 @@ test('pilot_fixture_is_reproducible_and_has_real_indirect_dependencies', async (
     "import { summarizeIssues } from './src/issue-report.mjs'; console.log(JSON.stringify(summarizeIssues([{id:7,label:' High Priority ',state:'open'}])));"], { cwd: root, encoding: 'utf8' });
   assert.equal(chain.status, 0);
   assert.deepEqual(JSON.parse(chain.stdout), [{ id: 7, label: 'high-priority' }]);
-  const second = await mkdtemp(join(tmpdir(), 'context-pilot-fixture-'));
+  const second = await mkdtemp(join(temporaryRoot, 'context-pilot-fixture-'));
   assert.equal((await materializePilotFixture(second)).initial_revision, materialized.initial_revision);
   await assert.rejects(() => materializePilotFixture(root), /empty/);
-  const poisoned = await mkdtemp(join(tmpdir(), 'context-pilot-environment-'));
+  const poisoned = await mkdtemp(join(temporaryRoot, 'context-pilot-environment-'));
   const isolated = spawnSync(process.execPath, [resolve('src/pilot-evaluation.mjs'), 'fixture', '--repo', poisoned], {
     encoding: 'utf8', env: { ...process.env, GIT_DIR: join(second, '.git'), GIT_WORK_TREE: second },
   });
   assert.equal(isolated.status, 0);
   assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: second, encoding: 'utf8' }).stdout.trim(), materialized.initial_revision);
-  const changed = await mkdtemp(join(tmpdir(), 'context-pilot-changes-'));
+  const gitHome = await mkdtemp(join(temporaryRoot, 'context-xdg-git-'));
+  await mkdir(join(gitHome, 'git'));
+  await writeFile(join(gitHome, 'git/ignore'), 'package-lock.json\n');
+  const ignoredRoot = await mkdtemp(join(temporaryRoot, 'context-pilot-ignore-'));
+  const ignored = spawnSync(process.execPath, [resolve('src/pilot-evaluation.mjs'), 'fixture', '--repo', ignoredRoot], {
+    encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: gitHome },
+  });
+  assert.equal(ignored.status, 0);
+  assert.equal(JSON.parse(ignored.stdout).initial_revision, materialized.initial_revision, 'Ambient Git ignore files must not change the fixture');
+  await writeFile(join(gitHome, 'git/attributes'), '*.mjs working-tree-encoding=UTF-16\n');
+  const attributedRoot = await mkdtemp(join(temporaryRoot, 'context-pilot-attributes-'));
+  const attributed = spawnSync(process.execPath, [resolve('src/pilot-evaluation.mjs'), 'fixture', '--repo', attributedRoot], {
+    encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: gitHome },
+  });
+  assert.equal(attributed.status, 0, 'Ambient Git attributes must not change file encoding');
+  assert.equal(JSON.parse(attributed.stdout).initial_revision, materialized.initial_revision);
+  const changed = await mkdtemp(join(temporaryRoot, 'context-pilot-changes-'));
   const result = await materializePilotFixture(changed, 'changes');
   assert.equal(result.initial_revision, materialized.initial_revision);
   const status = spawnSync('git', ['status', '--porcelain=v1'], { cwd: changed, encoding: 'utf8' }).stdout;
@@ -142,8 +194,10 @@ test('pilot_fixture_is_reproducible_and_has_real_indirect_dependencies', async (
 
 // The gate must execute checks, rather than infer success from an empty command output.
 test('verification_gate_reports_syntax_and_behavior_failures', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'context-gate-'));
-  spawnSync('git', ['init', '--initial-branch=fixture-base'], { cwd: root, encoding: 'utf8' });
+  const root = await mkdtemp(join(temporaryRoot, 'context-gate-'));
+  const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  assert.equal(spawnSync('git', ['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-base'], { cwd: root, env: environment, encoding: 'utf8' }).status, 0);
   await import('node:fs/promises').then(fs => fs.mkdir(join(root, 'tests')));
   const path = join(root, 'tests/broken.test.mjs');
   const gate = resolve('scripts/verify-context-policy.mjs');
@@ -155,4 +209,15 @@ test('verification_gate_reports_syntax_and_behavior_failures', async () => {
   const behavioral = spawnSync(process.execPath, [gate], { cwd: root, encoding: 'utf8' });
   assert.equal(behavioral.status, 1);
   assert.match(behavioral.stdout + behavioral.stderr, /required check failure/);
+  await writeFile(path, "import test from 'node:test'; test('valid isolated check', () => {});\n");
+  await mkdir(join(root, 'evaluation'));
+  for (const file of ['tasks.jsonl', 'pilot-fixture.json']) await copyFile(resolve('evaluation', file), join(root, 'evaluation', file));
+  await writeFile(join(root, 'README.md'), '[External skill](/unavailable-context-policy-host/SKILL.md)\n');
+  const portable = spawnSync(process.execPath, [gate], { cwd: root, encoding: 'utf8' });
+  assert.equal(portable.status, 0, 'Unavailable external references must not break a portable repository gate');
+  assert.match(portable.stderr, /external reference/i);
+  await writeFile(join(root, 'README.md'), '[Required local document](missing-required.md)\n');
+  const localLink = spawnSync(process.execPath, [gate], { cwd: root, encoding: 'utf8' });
+  assert.equal(localLink.status, 1);
+  assert.match(localLink.stderr, /Broken local document link/);
 });

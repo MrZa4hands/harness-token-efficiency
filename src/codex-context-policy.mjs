@@ -1,5 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { join, resolve, relative, isAbsolute } from 'node:path';
+import { join, relative, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** @typedef {{mode:'off'|'shadow'|'enforce',jev_enabled:boolean,operations:Record<string,'off'|'shadow'|'enforce'>}} ContextPolicyConfig */
@@ -36,13 +36,15 @@ export async function handleCodexHook(input) {
   return unchanged;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+const policyEntryPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;
+if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) {
   if (process.argv[2] !== 'hook') {
     process.stderr.write('Context policy CLI: expected operation hook.\n');
     process.exitCode = 1;
   } else {
     try {
       let text = '';
+      process.stdin.setEncoding('utf8');
       for await (const chunk of process.stdin) {
         text += chunk;
         if (Buffer.byteLength(text) > 1_000_000) throw new Error('Context hook input exceeds limit');

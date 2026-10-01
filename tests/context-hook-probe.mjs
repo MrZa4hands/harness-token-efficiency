@@ -9,6 +9,7 @@ try {
   const marker = process.argv[3];
   if (!/^[a-zA-Z0-9-]{1,100}$/.test(marker)) throw new Error('Context probe marker invalid');
   let text = '';
+  process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) {
     text += chunk;
     if (Buffer.byteLength(text) > 1_000_000) throw new Error('Context probe input too large');
