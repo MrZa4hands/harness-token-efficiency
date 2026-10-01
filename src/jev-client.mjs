@@ -14,7 +14,10 @@ function jevExactKeys(value, keys) {
 }
 function jevRequestTextSafe(text) {
   return typeof text === 'string' && text.trim().length > 0 && Buffer.byteLength(text) <= 1600 &&
-    !/[\u0000-\u001f\u007f]|```|-----BEGIN|github_pat_|gh[pousr]_|\bsk-[A-Za-z0-9]|\bAKIA[A-Z0-9]|\bBearer\b|\b(?:[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD))\s*[:=]|https?:\/\/[^/\s]+@|\b(?:export|import|def|function|class)\s+|=>/iu.test(text) &&
+    !/[\u0000-\u001f\u007f]|```|-----BEGIN|github_pat_|gh[pousr]_|\bsk-[A-Za-z0-9]|\bAKIA[A-Z0-9]|\bBearer\b|\b(?:[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD))\s*[:=]|[a-z][a-z0-9+.-]*:\/\/[^/\s]+@|\b(?:export|import|def|function|class)\s+|=>/iu.test(text) &&
+    !/\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=|\b(?:select\b.+\bfrom|insert\s+into|update\b.+\bset|delete\s+from|create\s+table|drop\s+table)\b/iu.test(text) &&
+    !/\b(?:password|passphrase|pin|contraseña|clave|token|secret|key|credential|secreto|credencial)\s+(?:is|es)\s+\S+/iu.test(text) &&
+    !text.replace(/`[\p{L}\p{N}_$./:-]+`/gu, '').includes('`') &&
     !/[A-Za-z0-9+/_=-]{32,}/.test(text);
 }
 function jevMinimalStateValid(state) {
@@ -25,8 +28,7 @@ function jevMinimalStateValid(state) {
     typeof state.facts.exhaustive === 'boolean' && [null, 'worktree'].includes(state.facts.change_scope);
 }
 function jevQuestionsValid(questions) {
-  if (!questions || typeof questions !== 'object' || Array.isArray(questions) ||
-      Object.keys(questions).length < 1 || Object.keys(questions).length > 6) return false;
+  if (!jevExactKeys(questions, jevQuestionNames)) return false;
   return Object.entries(questions).every(([name, question]) => {
     if (!jevQuestionNames.includes(name) || !question || typeof question.instructions !== 'string' || !question.instructions.trim()) return false;
     if (name === 'context_operation') return jevExactKeys(question, ['type', 'instructions', 'criteria']) &&
@@ -38,6 +40,7 @@ function jevQuestionsValid(questions) {
 
 /** Minimize Jev context to bounded explicit requests and safe facts, never code or transcripts. */
 export function minimizeJevState(state, facts) {
+  if (state.history_gap) return null;
   const request = state.recent_requests.at(-1)?.text;
   const activeGoal = state.active_request?.text;
   const minimized = { request, active_goal: activeGoal && activeGoal !== request ? activeGoal : null,
@@ -118,7 +121,13 @@ export async function queryJevContext(request, options = {}) {
   requestSent = true;
   const result = await fetchJevJson('https://api.typesafe.ai/v1/systemone', { method: 'POST', body }, options, 1000);
   if (result.error) return abstain(result.error);
-  if (!validateJevContextResponse(result.value, request.questions)) return abstain('invalid-response');
+  if (!validateJevContextResponse(result.value, request.questions)) {
+    const billingValid = jevModelValid(result.value?.model) && jevExactKeys(result.value?.usage, ['input_tokens', 'output_tokens']) &&
+      Object.values(result.value.usage).every(jevCountValid);
+    return { ...abstain('invalid-response'), ...(billingValid ? { actual_model: result.value.model, provider_usage: result.value.usage } : {}) };
+  }
+  if (options.expectedActualModel && result.value.model !== options.expectedActualModel) return {
+    ...abstain('changed-actual-model'), actual_model: result.value.model, provider_usage: result.value.usage };
   return { status: 'ok', response: result.value, fallback_reason: null, duration_ms: performance.now() - started, request_sent: true };
 }
 
@@ -130,7 +139,9 @@ export async function discoverJevModels(options = {}) {
   if (result.error) return abstain(result.error);
   if (!jevExactKeys(result.value, ['models']) || !Array.isArray(result.value.models) || !result.value.models.length ||
       !result.value.models.every(model => jevExactKeys(model, ['name', 'description', 'release_date']) &&
-        jevModelValid(model.name) && typeof model.description === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(model.release_date)) ||
+        jevModelValid(model.name) && typeof model.description === 'string' && typeof model.release_date === 'string' &&
+        /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(model.release_date) &&
+        Number.isFinite(Date.parse(model.release_date))) ||
       new Set(result.value.models.map(model => model.name)).size !== result.value.models.length) return abstain('invalid-response');
   return { status: 'ok', models: result.value.models, fallback_reason: null };
 }
@@ -158,8 +169,9 @@ export async function configureJevModel(repoRoot, options = {}) {
     if (!config || !['off', 'shadow', 'enforce'].includes(config.mode) || typeof config.jev_enabled !== 'boolean' ||
         (config.operations !== undefined && (!config.operations || typeof config.operations !== 'object' || Array.isArray(config.operations) ||
           Object.values(config.operations).some(value => !['off', 'shadow', 'enforce'].includes(value))))) return abstain('invalid-configuration');
-    temporary = join(directory, '.jev-setup-' + randomUUID() + '.tmp');
-    const file = await open(temporary, 'wx', 0o600);
+    if (config.jev_model !== model) delete config.jev_actual_model;
+    const temporaryPath = join(directory, '.jev-setup-' + randomUUID() + '.tmp');
+    const file = await open(temporaryPath, 'wx', 0o600); temporary = temporaryPath;
     try { await file.writeFile(JSON.stringify({ ...config, jev_model: model }, null, 2) + '\n'); await file.sync(); }
     finally { await file.close(); }
     const current = await lstat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
@@ -169,7 +181,7 @@ export async function configureJevModel(repoRoot, options = {}) {
     return { status: 'ok', model, fallback_reason: null };
   } catch { return abstain('configuration-rejected'); }
   finally {
-    if (temporary) await unlink(temporary);
-    if (lock) { await lock.close(); await unlink(lockPath); }
+    try { if (temporary) await unlink(temporary); }
+    finally { if (lock) { try { await lock.close(); } finally { await unlink(lockPath); } } }
   }
 }

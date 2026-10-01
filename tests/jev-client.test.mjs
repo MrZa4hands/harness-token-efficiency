@@ -1,6 +1,6 @@
-import test, { after } from 'node:test';
+import test, { after, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, mkdir, mkdtemp, realpath, readdir, lstat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, realpath, readdir, lstat, chmod } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,6 +8,9 @@ import { queryJevContext, minimizeJevState, discoverJevModels, configureJevModel
 import { resolveContextDecision } from '../src/context-state.mjs';
 import { handleCodexHook } from '../src/codex-context-policy.mjs';
 import { collectJevUsage } from '../src/pilot-evaluation.mjs';
+import contextFileSystem from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { createHash } from 'node:crypto';
 
 const questions = JSON.parse(await readFile(new URL('../config/jev-questions.json', import.meta.url), 'utf8'));
 const temporaryRoot = await realpath(await mkdtemp(join(tmpdir(), 'jev-contract-tests-')));
@@ -44,6 +47,19 @@ test('jev_contract_and_abstention', async () => {
   assert.equal(good.response.model, 'jev-fixture-actual');
   assert.deepEqual(good.response.usage, { input_tokens: 170, output_tokens: 18 });
   assert.equal(calls, 1);
+  const changedModel = await queryJevContext(request, { apiKey: 'fixture-key', expectedActualModel: 'jev-fixture-pinned',
+    fetchImpl: async () => new Response(JSON.stringify(goodResponse())) });
+  assert.equal(changedModel.status, 'abstain', 'A changed actual model cannot reuse calibrated decisions');
+  assert.equal(changedModel.fallback_reason, 'changed-actual-model');
+  assert.equal(changedModel.actual_model, 'jev-fixture-actual');
+  assert.deepEqual(changedModel.provider_usage, { input_tokens: 170, output_tokens: 18 });
+  assert.equal(changedModel.request_sent, true);
+  const malformed = goodResponse(); malformed.answers.context_operation.probabilities.baseline = 0.8;
+  const rejectedAnswers = await invoke(malformed);
+  assert.equal(rejectedAnswers.status, 'abstain');
+  assert.equal(rejectedAnswers.actual_model, 'jev-fixture-actual');
+  assert.deepEqual(rejectedAnswers.provider_usage, { input_tokens: 170, output_tokens: 18 },
+    'Malformed classifier answers must not discard independently valid billable usage');
   const mutations = [
     response => { delete response.answers.needs_repository_context; },
     response => { response.answers.needs_repository_context.type = 'choice'; },
@@ -88,20 +104,34 @@ test('jev_minimization_and_zero_call_guards', async () => {
   const sourceState = { recent_requests: [{ text: minimalState.request }], active_request: { text: minimalState.request }, continuity: 'new' };
   const facts = { explicit_paths: [], literal_symbols: [], exhaustive: false, change_scope: null };
   assert.deepEqual(minimizeJevState(sourceState, facts), minimalState);
-  for (const text of ['Use github_pat_SYNTHETIC_PRIVATE_TOKEN_TO_REJECT', 'Authorization: Bearer synthetic-secret',
+  const unsafeTexts = ['Use github_pat_SYNTHETIC_PRIVATE_TOKEN_TO_REJECT', 'Authorization: Bearer synthetic-secret',
     'API_KEY=synthetic-secret', '```js\nexport const privateSource = 1;\n```', '-----BEGIN PRIVATE KEY-----',
-    'Read https://user:password@example.invalid', 'export const privateSource = "hidden";', 'x'.repeat(2000)]) {
+    'Read https://user:password@example.invalid', 'export const privateSource = "hidden";', 'x'.repeat(2000),
+    'Explain postgres://fixture-user:fixture-password@example.invalid/db',
+    'Explain mysql://fixture-user:fixture-password@example.invalid/db',
+    'Explain redis://fixture-user:fixture-password@example.invalid/db',
+    'Explain `const internalValue = 1;`', 'Explain let internalValue = 1;',
+    'Explain SELECT private_value FROM internal_table;', 'My password is fixture-pass',
+    'Mi contraseña es fixture-pass', 'My PIN is 1234', 'My token is fixture-pass',
+    'Mi token es fixture-pass', 'My secret is fixture-pass', 'My credential is fixture-pass',
+    'Mi secreto es fixture-pass', 'Mi credencial es fixture-pass'];
+  for (const text of unsafeTexts) {
     assert.equal(minimizeJevState({ ...sourceState, recent_requests: [{ text }], active_request: { text } }, facts), null);
+    assert.equal(minimizeJevState({ ...sourceState, active_request: { text }, continuity: 'unknown' }, facts), null,
+      'The active goal must have the same privacy boundary as the current request');
   }
+  assert.notEqual(minimizeJevState({ ...sourceState, recent_requests: [{ text: 'Locate `normalizeLabel` in `src/label-policy.mjs`.' }] }, facts), null);
   let calls = 0;
   const options = { apiKey: 'fixture-key', signal: AbortSignal.timeout(2000), fetchImpl: async () => { calls++; return new Response('{}'); } };
   const cases = [
     [{ ...request, state: { ...minimalState, request: 'github_pat_SYNTHETIC_PRIVATE_TOKEN' } }, options],
     [{ ...request, questions: { ...questions, extra: { type: 'noul', instructions: 'x'.repeat(6000) } } }, options],
+    [{ ...request, questions: { needs_repository_context: questions.needs_repository_context } }, options],
     [request, { ...options, apiKey: null }],
     [request, { ...options, mode: 'off' }],
     [request, { ...options, jevEnabled: false }],
     [request, { ...options, conclusiveRule: true }],
+    ...unsafeTexts.map(text => [{ ...request, state: { ...minimalState, request: text } }, options]),
   ];
   for (const [input, settings] of cases) assert.equal((await queryJevContext(input, settings)).status, 'abstain');
   assert.equal(calls, 0, 'Rejected state, off, disabled Jev, and conclusive rules must not send requests');
@@ -123,6 +153,14 @@ test('jev_semantic_decisions_preserve_protected_facts', () => {
   assert.equal(resolveContextDecision({ ...state, protected_requirements: [] }, { ...facts, exhaustive: false }, uncertain).action, 'baseline');
   const differentRecipe = goodResponse(); differentRecipe.answers.needs_change_context.noul = 0.99;
   assert.equal(resolveContextDecision({ ...state, protected_requirements: [] }, { ...facts, exhaustive: false }, differentRecipe).action, 'baseline');
+  const ignoresLocalReview = goodResponse(); ignoresLocalReview.answers.continues_active_goal.noul = 0.99;
+  assert.equal(resolveContextDecision({ ...state, continuity: 'unknown' }, { ...facts, exhaustive: false,
+    known_operation: 'code_review_context', change_scope: { kind: 'worktree' } }, ignoresLocalReview).fallback_reason,
+  'contradictory-classification', 'Semantic continuity cannot discard an explicit local review scope');
+  const negativeBoundary = goodResponse();
+  for (const answer of Object.values(negativeBoundary.answers)) if (answer.type === 'noul' && answer.noul < 0.5) answer.noul = 0.10;
+  assert.equal(resolveContextDecision({ ...state, protected_requirements: [] }, { ...facts, exhaustive: false }, negativeBoundary).action,
+    'prefetch', 'An exact 0.10 negative probability is inside the declared confidence boundary');
 });
 
 // Setup must choose only authenticated returned names, never invent an available model from examples.
@@ -131,7 +169,7 @@ test('jev_model_discovery_uses_authenticated_setup_contract', async () => {
   const discovered = await discoverJevModels({ apiKey: 'fixture-key', fetchImpl: async (url, options) => {
     calls++; assert.equal(url, 'https://api.typesafe.ai/v1/models'); assert.equal(options.method, 'GET');
     assert.equal(options.headers.Authorization, 'Bearer fixture-key'); assert.equal(options.redirect, 'error');
-    return new Response(JSON.stringify({ models: [{ name: 'jev-fixture-alias', description: 'Fixture only', release_date: '2026-09-15' }] }));
+    return new Response(JSON.stringify({ models: [{ name: 'jev-fixture-alias', description: 'Fixture only', release_date: '2026-09-10T18:38:01.391457+00:00' }] }));
   } });
   assert.equal(discovered.status, 'ok'); assert.equal(discovered.models[0].name, 'jev-fixture-alias'); assert.equal(calls, 1);
 });
@@ -174,6 +212,13 @@ test('jev_setup_persists_only_a_discovered_model', async () => {
   assert.equal((await lstat(configPath)).mode & 0o777, 0o600);
   assert.equal((await configureJevModel(root, { ...options, model: 'not-discovered' })).status, 'abstain');
   assert.equal(await readFile(configPath, 'utf8'), text);
+  await writeFile(configPath, JSON.stringify({ ...config, jev_actual_model: 'jev-fixture-old' }));
+  assert.equal((await configureJevModel(root, options)).status, 'ok');
+  assert.equal(JSON.parse(await readFile(configPath, 'utf8')).jev_actual_model, 'jev-fixture-old', 'Selecting the same alias preserves its explicit actual pin');
+  const otherModel = { ...options, model: 'jev-fixture-new', fetchImpl: async () => new Response(JSON.stringify({
+    models: [{ name: 'jev-fixture-new', description: 'New fixture', release_date: '2026-09-15' }] })) };
+  assert.equal((await configureJevModel(root, otherModel)).status, 'ok');
+  assert.equal(JSON.parse(await readFile(configPath, 'utf8')).jev_actual_model, undefined, 'A new selected alias requires a new actual pin');
 });
 
 // The real hook must consume one validated query, log its usage, and bypass it for deterministic/off work.
@@ -221,13 +266,93 @@ test('shadow_hook_queries_jev_only_for_unresolved_safe_requests', async () => {
     await writeFile(configPath, JSON.stringify(config));
     globalThis.fetch = async () => {
       calls++; const response = goodResponse();
-      response.answers.continues_active_goal.noul = 0.01;
+      response.answers.continues_active_goal.noul = 0.10;
       return new Response(JSON.stringify(response));
     };
-    await handleCodexHook({ ...input, turn_id: 'new-objective', prompt: 'What happens if the input is empty?' });
-    const privateState = JSON.parse(await readFile(join(sessionPath, 'task.json'), 'utf8'));
+    await handleCodexHook({ ...input, session_id: 'negative-boundary' });
+    await handleCodexHook({ ...input, session_id: 'negative-boundary', turn_id: 'new-objective', prompt: 'What happens if the input is empty?' });
+    const privateState = JSON.parse(await readFile(join(runtimeRoot, repository, createHash('sha256').update('negative-boundary').digest('hex'), 'task.json'), 'utf8'));
     assert.equal(privateState.active_request.text, 'What happens if the input is empty?',
       'A validated negative continuity observation must preserve the new explicit objective for the next turn');
+
+    // A losing task-state writer must still account for its independently billed provider call.
+    const repositoryPath = join(runtimeRoot, repository);
+    const beforeSessions = await readdir(repositoryPath);
+    let concurrentCalls = 0; let releaseRequests;
+    const bothRequests = new Promise(resolve => { releaseRequests = resolve; });
+    globalThis.fetch = async () => {
+      concurrentCalls++;
+      if (concurrentCalls === 2) releaseRequests();
+      await bothRequests;
+      return new Response(JSON.stringify(goodResponse()));
+    };
+    const overlapping = await Promise.all(['overlap-one', 'overlap-two'].map(turn_id => handleCodexHook({
+      ...input, session_id: 'overlap-session', turn_id,
+    })));
+    assert.equal(overlapping.filter(result => result.stderr.includes('state conflict')).length, 1);
+    const overlapSession = (await readdir(repositoryPath)).find(name => !beforeSessions.includes(name));
+    const overlapPath = join(repositoryPath, overlapSession);
+    const overlapRecords = await Promise.all((await readdir(overlapPath)).filter(name => name.startsWith('decision-'))
+      .map(async name => JSON.parse(await readFile(join(overlapPath, name), 'utf8'))));
+    assert.equal(overlapRecords.length, 2, 'Both completed billable requests must have immutable records');
+    assert.equal(collectJevUsage(overlapRecords).requests, 2);
+    assert.equal(collectJevUsage(overlapRecords).total_tokens, 376);
+    const afterConflictCalls = concurrentCalls;
+    assert.equal((await handleCodexHook({ ...input, session_id: 'overlap-session', turn_id: 'after-conflict', prompt: 'hazlo' })).stderr, '');
+    assert.equal(concurrentCalls, afterConflictCalls, 'A missing concurrent turn cannot be reconstructed by Jev');
+    const afterConflict = JSON.parse(await readFile(join(overlapPath, 'task.json'), 'utf8'));
+    assert.equal(afterConflict.history_gap, true);
+    assert.equal(afterConflict.continuity, 'unknown');
+    const gapRecords = await Promise.all((await readdir(overlapPath)).filter(name => name.startsWith('decision-'))
+      .map(async name => JSON.parse(await readFile(join(overlapPath, name), 'utf8'))));
+    assert.equal(gapRecords.find(record => record.turn_hash === createHash('sha256').update('after-conflict').digest('hex')).fallback_reason, 'history-gap');
+
+    const concurrentFetch = globalThis.fetch; let drifted = false;
+    globalThis.fetch = async () => {
+      const response = goodResponse(); response.answers.continues_active_goal.noul = 0.99;
+      if (drifted) response.model = 'jev-fixture-changed';
+      return new Response(JSON.stringify(response));
+    };
+    await handleCodexHook({ ...input, session_id: 'model-drift', prompt: 'Inspect `example.mjs`.' });
+    await handleCodexHook({ ...input, session_id: 'model-drift', prompt: 'What does this code do?' });
+    await handleCodexHook({ ...input, session_id: 'model-drift', prompt: 'hazlo' });
+    drifted = true;
+    await handleCodexHook({ ...input, session_id: 'model-drift', turn_id: 'changed-model', prompt: minimalState.request });
+    const driftPath = join(repositoryPath, createHash('sha256').update('model-drift').digest('hex'));
+    const driftRecords = await Promise.all((await readdir(driftPath)).filter(name => name.startsWith('decision-'))
+      .map(async name => JSON.parse(await readFile(join(driftPath, name), 'utf8'))));
+    const driftRecord = driftRecords.find(record => record.turn_hash === createHash('sha256').update('changed-model').digest('hex'));
+    assert.equal(driftRecord.fallback_reason, 'changed-actual-model', 'A local turn cannot erase the last model used for drift detection');
+    assert.equal(driftRecord.versions.jev_model, 'jev-fixture-changed');
+    assert.deepEqual(driftRecord.provider_usage, { input_tokens: 170, output_tokens: 18 });
+    globalThis.fetch = concurrentFetch;
+
+    const beforeOffCalls = concurrentCalls;
+    await handleCodexHook({ ...input, session_id: 'off-gap', prompt: 'Inspect `example.mjs`.' });
+    await writeFile(configPath, JSON.stringify({ ...config, mode: 'off' }));
+    await handleCodexHook({ ...input, session_id: 'off-gap', prompt: 'Review the changes.' });
+    await writeFile(configPath, JSON.stringify(config));
+    await handleCodexHook({ ...input, session_id: 'off-gap', prompt: 'hazlo' });
+    const offGapPath = join(repositoryPath, createHash('sha256').update('off-gap').digest('hex'));
+    const offGap = JSON.parse(await readFile(join(offGapPath, 'task.json'), 'utf8'));
+    assert.equal(offGap.continuity, 'unknown', 'An identical restored configuration cannot certify continuity across an off interval');
+    assert.equal(offGap.history_gap, true); assert.equal(concurrentCalls, beforeOffCalls);
+
+    process.env.TYPESAFE_API_KEY = 'invalid\ncredential';
+    assert.equal((await handleCodexHook({ ...input, session_id: 'credential-error' })).stderr, '');
+    const failedCredentialPath = join(repositoryPath, createHash('sha256').update('credential-error').digest('hex'));
+    const credentialRecords = (await readdir(failedCredentialPath)).filter(name => name.startsWith('decision-'));
+    assert.equal(credentialRecords.length, 1, 'A credential failure must still record the captured local decision');
+    const credentialRecord = JSON.parse(await readFile(join(failedCredentialPath, credentialRecords[0]), 'utf8'));
+    assert.equal(credentialRecord.fallback_reason, 'credential-unavailable');
+    assert.equal(credentialRecord.provider_attempts, 0);
+    assert.equal(JSON.parse(await readFile(join(failedCredentialPath, 'task.json'), 'utf8')).history_gap, false);
+    process.env.TYPESAFE_API_KEY = 'fixture-key';
+    await chmod(configPath, 0o644);
+    const beforeNonprivate = await readdir(repositoryPath);
+    assert.equal((await handleCodexHook({ ...input, session_id: 'nonprivate-policy' })).stderr, '');
+    assert.deepEqual(await readdir(repositoryPath), beforeNonprivate, 'A nonprivate operational policy must remain off');
+    assert.equal(concurrentCalls, beforeOffCalls);
   } finally {
     globalThis.fetch = oldFetch;
     for (const [name, value] of [['HOME', oldHome], ['TYPESAFE_API_KEY', oldKey]]) {
@@ -253,4 +378,30 @@ test('jev_usage_counts_unique_attempts_and_preserves_unknown_billing', async () 
   const cli = spawnSync(process.execPath, [resolve('src/pilot-evaluation.mjs'), 'jev-usage', '--decisions', path], { encoding: 'utf8' });
   assert.equal(cli.status, 0, 'The evaluator must expose Jev usage without exporting decision source');
   assert.equal(JSON.parse(cli.stdout).total_tokens, 210);
+});
+
+// A failed setup must release its own lock even when temporary creation or cleanup fails.
+test('jev_model_setup_failures_release_the_owned_lock', async () => {
+  const options = { apiKey: 'fixture-key', fetchImpl: async () => new Response(JSON.stringify({
+    models: [{ name: 'jev-fixture-alias', description: 'Fixture', release_date: '2026-09-15' }] })) };
+  const realOpen = contextFileSystem.open; const realUnlink = contextFileSystem.unlink;
+  for (const failure of ['open', 'cleanup']) {
+    const root = await mkdtemp(join(temporaryRoot, 'setup-failure-'));
+    const opening = mock.method(contextFileSystem, 'open', async (path, ...args) => {
+      if (path.includes('/.jev-setup-') && failure === 'open') throw Object.assign(new Error('Fixture open failure'), { code: 'EACCES' });
+      const file = await realOpen(path, ...args);
+      if (path.includes('/.jev-setup-')) file.sync = async () => { throw Object.assign(new Error('Fixture sync failure'), { code: 'EIO' }); };
+      return file;
+    });
+    const removing = mock.method(contextFileSystem, 'unlink', async path => {
+      if (path.includes('/.jev-setup-')) throw Object.assign(new Error('Fixture cleanup failure'), { code: 'EACCES' });
+      return realUnlink(path);
+    });
+    syncBuiltinESMExports();
+    try { await configureJevModel(root, options).catch(() => {}); }
+    finally { opening.mock.restore(); removing.mock.restore(); syncBuiltinESMExports(); }
+    assert.equal((await readdir(join(root, '.codex'))).includes('.jev-setup.lock'), false,
+      'Failed ' + failure + ' must not leave future setup permanently busy');
+    assert.equal((await configureJevModel(root, options)).status, 'ok');
+  }
 });
