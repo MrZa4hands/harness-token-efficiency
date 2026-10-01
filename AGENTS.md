@@ -81,4 +81,6 @@ Current state, 2026-10-01: Roe established `develop` and the independent deliver
 
 Historical planning state: on 2026-09-30, `develop` was absent locally and `git ls-remote --heads origin develop` returned no matching remote branch. That absence no longer describes the independent repository.
 
+Phase 1 preparation, 2026-10-01: PR #1 merged into develop `47ac03db561efce16c44a907bb01be72c5def40c`; PR #2 targets develop from that verified base. State/shadow decisions and requested hidden Keychain installation are implemented; both required review stages completed and all confirmed findings were corrected. Source gate 76/76. Actual calibration accepted no semantic proposals; Jev remains disabled and no token saving is claimed. See [phase 1 validation](docs/validation/phase-1.md) for negative calibration, incomplete billing, review dispositions and retained source-worktree references. Final documentation/checks/merge precede opening phase 2.
+
 At independent initialization on 2026-10-01, the directory initially had `main` without a remote or `develop`. Earlier parent-repository observations must not be reused as this repository's delivery base.

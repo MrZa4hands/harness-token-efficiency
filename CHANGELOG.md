@@ -6,6 +6,15 @@ read_when: Before assessing the capabilities of the current pilot phase.
 
 ## Unreleased
 
+### Phase 1 — Isolated Shadow Decisions and Jev Setup
+
+- Observe protected paths, symbols and explicit coverage in isolated private task state. Conflicting writers, missing history and configuration changes retain baseline; raw snapshot capture avoids Git conversion filters and rejects stale, external or blocking evidence. See [state and recovery](docs/usage.md).
+- Configure Jev during hook installation through `install --configure-jev --apply`, using a hidden macOS Keychain prompt and authenticated model discovery. Environment credentials take precedence; keys never enter hook JSON, argv or Git. Setup preserves mode, query enablement and native trust.
+- Validate one bounded grouped query with no retries, protect local facts, retain actual-model expectations across local turns, and recover deliberately selected aliases/pins. Record independent valid billing even when classification or task persistence fails; missing usage stays unknown.
+- Verify 76 passing tests and both prescribed code-review stages, correcting every confirmed finding through failing-test-first regressions. A trusted native shadow smoke records an unapplied rule proposal with no tools or Jev query. Thanks to Roe for local credential setup and native trust verification. See [phase 1 validation](docs/validation/phase-1.md).
+- Keep Jev disabled after actual tuning/held-out observations accepted no semantic proposals. Corrective replay retains 19 correct local proposals/60 cases; it is not independent calibration or token-saving evidence. One historical missing usage record leaves exact experimental billing unknown. No injection, command rewrite, check execution or promotion is activated.
+- Enforce seven-day logical expiry with private permissions. Physical cleanup remains opportunistic within 25 ms during enabled activity; off/idle periods and large traversals have no physical deletion/progress guarantee. Retain installed source worktrees until safe withdrawal or relocation.
+
 ### Phase 0 — Compatibility and Baseline
 
 - Install and withdraw an inert native Codex hook while preserving existing handlers, configuration, and file modes. Linked worktrees register at the primary checkout; ownership survives interrupted writes and distinguishes replacement installations. See [installation and recovery](docs/usage.md).
