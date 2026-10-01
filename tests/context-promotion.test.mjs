@@ -36,6 +36,15 @@ test('context_promotion_recomputes_paired_evidence', () => {
     ['missing check', row => { row.quality.checks_complete = false; }],
     ['critical regression', row => { row.quality.critical_regression = true; }],
     ['unverified task coverage', row => { row.task_coverage_verified = false; }],
+    ['string task coverage', row => { row.task_coverage_verified = 'false'; }],
+    ['string native execution', row => { row.native_execution_verified = 'false'; }],
+    ['string Codex availability', row => { row.codex_usage.available = 'false'; }],
+    ['string Jev availability', row => { row.jev_usage.available = 'false'; }],
+    ['semantic deterministic run', row => {
+      row.codex_usage.input_tokens = 690; row.codex_usage.total_tokens = 790;
+      row.jev_usage = { available: true, input_tokens: 5, output_tokens: 5, total_tokens: 10,
+        requests: 1, models: [versions.jev_model] };
+    }],
     ['unknown model', row => { row.versions.main_model = 'unverified'; }],
     ['prompt mismatch', row => { row.prompt_hash = 'c'.repeat(64); }],
     ['insufficient reduction', row => { row.codex_usage.input_tokens = 710; row.codex_usage.total_tokens = 810; }],
@@ -53,10 +62,39 @@ test('context_promotion_recomputes_paired_evidence', () => {
     'Deterministic qualification is independent of Jev model/questions');
   const forgedSummary = { ...report, runs: runs.slice(1), promotions: report.promotions };
   assert.equal(resolveContextPromotion(config, 'code_context', versions, forgedSummary), 'shadow', 'Stored summary cannot grant activation');
+  const mismatchedFamily = structuredClone(runs);
+  for (const row of mismatchedFamily) {
+    if (row.variant === 'deterministic') row.family = 'documentation_context';
+    if (row.variant === 'hybrid') { row.codex_usage.input_tokens = 600; row.codex_usage.total_tokens = 700; }
+  }
+  assert.equal(comparePilotRuns(mismatchedFamily).promotions.length, 0,
+    'Incremental hybrid value must compare the same deterministic family');
 });
 
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'context-promotion-tests-'));
 after(() => assert.equal(spawnSync('trash', [temporaryRoot]).status, 0));
+
+// Mixed executed models cannot share one hybrid promotion fingerprint.
+test('hybrid_promotion_requires_bound_actual_provider_models', () => {
+  const runs = measuredRuns();
+  for (const row of runs.filter(row => row.variant === 'hybrid')) {
+    row.codex_usage.input_tokens = 590; row.codex_usage.total_tokens = 690;
+    row.jev_usage = { available: true, input_tokens: 5, output_tokens: 5, total_tokens: 10,
+      requests: 1, models: [versions.jev_model] };
+  }
+  assert.ok(comparePilotRuns(runs).promotions.some(item => item.variant === 'hybrid'));
+  for (const models of [[versions.jev_model, 'changed-actual-model'], [versions.jev_model]]) {
+    const changed = structuredClone(runs);
+    for (const row of changed.filter(row => row.variant === 'hybrid')) {
+      row.jev_usage.models = models;
+      row.jev_usage.requests = models.length === 2 ? 2 : 0;
+      if (row.jev_usage.requests === 0) Object.assign(row.jev_usage, { input_tokens: 0, output_tokens: 0, total_tokens: 0 });
+    }
+    assert.ok(!comparePilotRuns(changed).promotions.some(item => item.variant === 'hybrid'),
+      'Every observed provider model must match the actual pin, and absent requests imply absent models');
+  }
+});
+
 test('promotion_records_cannot_invalidate_their_own_source_version', async () => {
   const sourceRoot = fileURLToPath(new URL('../', import.meta.url));
   const questions = JSON.parse(await readFile(new URL('../config/jev-questions.json', import.meta.url), 'utf8'));
@@ -118,6 +156,21 @@ test('promotion_cli_persists_only_qualified_current_reports', async () => {
   await writeFile(reportPath, JSON.stringify({ ...report, runs: report.runs.slice(1) }));
   const forged = invoke(true); assert.equal(forged.status, 1);
   assert.equal(await readFile(configPath, 'utf8'), qualifiedBytes, 'Rejected report cannot alter any active configuration');
+  const familyRuns = runs.map(row => structuredClone(row));
+  for (const [index, row] of familyRuns.entries()) {
+    if (index >= 60) {
+      row.family = 'documentation_context';
+      row.versions.main_model = 'second-fixture-model'; row.versions.reasoning_effort = 'high';
+    }
+  }
+  const familyReport = comparePilotRuns(familyRuns);
+  assert.ok(familyReport.promotions.some(item => item.family === 'documentation_context' && item.variant === 'deterministic'));
+  await writeFile(reportPath, JSON.stringify(familyReport));
+  const familyPreview = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/manage-context-policy.mjs', import.meta.url)),
+    'promote', '--repo', root, '--report', reportPath, '--family', 'documentation_context', '--variant', 'deterministic'],
+    { encoding: 'utf8', timeout: 3000 });
+  assert.equal(familyPreview.status, 0, 'A family must use its own measured model/effort: ' + familyPreview.stdout + familyPreview.stderr);
+  assert.equal(await readFile(configPath, 'utf8'), qualifiedBytes);
   // A better hybrid report cannot erase or prevent independent deterministic qualification.
   const enabled = { ...updated, mode: 'enforce', jev_enabled: true, jev_model: 'fixture-jev-model', jev_actual_model: 'fixture-jev-model' };
   await writeFile(configPath, JSON.stringify(enabled));

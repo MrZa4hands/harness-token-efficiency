@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
-import { selectCodeContext, getRepositoryChanges } from './repository-context.mjs';
+import { selectCodeContext, getRepositoryChanges, readContext } from './repository-context.mjs';
 import { resolveContextFacts } from './context-state.mjs';
 
 /** Prepare exact Codex context within the caller's shared deadline; incomplete proposals abstain.
@@ -15,7 +15,10 @@ export async function prepareCodexContext(state, decision, versions, options = {
       ['contradictory-classification', 'invalid-response', 'uncertain-classification'].includes(decision.fallback_reason)) return null;
   // ponytail: automatic review covers the whole worktree; scoped reviews abstain until scope parsing is verified.
   const requests = [state.active_request?.text, ...state.recent_requests.map(request => request.text)].join('\n');
-  if (decision.operation === 'code_review_context' && /\b(?:only|solo|solamente|range|rango)\b|\.\./iu.test(requests)) return null;
+  const latestRequest = state.recent_requests.at(-1)?.text ?? state.active_request?.text ?? '';
+  if (decision.operation === 'code_review_context' &&
+      (!/^(?:please\s+)?(?:review|revisa|revisar)\s+(?:all\s+(?:the\s+)?changes|(?:the\s+)?(?:whole|entire)\s+(?:worktree|working\s+tree)|todos\s+los\s+cambios)(?:\s+and\s+(?:inspect|read|examine)\s+.+)?[.!?]?\s*$/iu.test(latestRequest.trim()) ||
+      /\b(?:only|solo|solamente|range|rango|staged|unstaged|cached|index|commit(?:s|ted)?|merged|HEAD|branch|rama|against|vs|versus|contra|since|desde|PR|pull\s+request|diff)\b|\.\.|[~^]|\b[a-f0-9]{7,64}\b/iu.test(requests))) return null;
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(2000)]) : AbortSignal.timeout(2000);
   try {
     signal.throwIfAborted(); const facts = resolveContextFacts(state);
@@ -28,8 +31,21 @@ export async function prepareCodexContext(state, decision, versions, options = {
       context_epoch: state.context_epoch, scope: { kind: 'worktree' }, signal };
     const operations = [];
     const byteLimit = decision.operation === 'code_review_context' ? 2200 : 4200;
-    if (decision.operation === 'code_review_context') operations.push({ operation: 'get_repository_changes',
-      bundle: await getRepositoryChanges({ ...request, byte_limit: byteLimit }) });
+    if (decision.operation === 'code_review_context') {
+      const changes = await getRepositoryChanges({ ...request, byte_limit: byteLimit });
+      operations.push({ operation: 'get_repository_changes', bundle: changes });
+      // Walk every inventory page without expanding oversized hunks; incomplete changed paths must abstain.
+      let page = changes;
+      for (;;) {
+        if (page.status !== 'ok') return null;
+        for (const entry of [...page.entries, ...page.omissions]) {
+          if (!state.inventory.includes(entry.path)) return null;
+          if (!paths.includes(entry.path)) paths.push(entry.path);
+        }
+        if (!page.next_cursor) break;
+        page = await readContext({ ...request, reference: changes.full_result, cursor: page.next_cursor, byte_limit: byteLimit });
+      }
+    }
     signal.throwIfAborted();
     operations.push({ operation: 'select_code_context', bundle: await selectCodeContext({ ...request,
       paths, symbols: facts.literal_symbols, family: decision.operation, exhaustive: facts.exhaustive, byte_limit: byteLimit }) });

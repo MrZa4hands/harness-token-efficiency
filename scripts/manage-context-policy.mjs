@@ -324,11 +324,11 @@ export async function promoteContextPolicy(options) {
       const report = comparePilotRuns(supplied.runs);
       if (supplied.report_version !== 1 || supplied.corpus_hash !== report.corpus_hash) throw new Error('Context promotion corpus/version rejected.');
       const coverage = parseInstallObject((await readInstallFile(join(directory, 'codex-context-policy-coverage.json'))).text, null);
-      if (coverage?.events?.UserPromptSubmit !== 'supported' || coverage.client_version !== report.runs[0]?.versions?.client_version)
+      const measuredVersions = report.runs.find(run => run.family === options.family && run.variant === options.variant)?.versions ?? {};
+      if (coverage?.events?.UserPromptSubmit !== 'supported' || coverage.client_version !== measuredVersions.client_version)
         throw new Error('Context promotion current native coverage is unverified.');
       const questions = JSON.parse(await readFile(join(receipt.source_root, 'config/jev-questions.json'), 'utf8'));
       const { readContextSourceVersions } = await import('../src/codex-context-policy.mjs');
-      const measuredVersions = report.runs[0]?.versions ?? {};
       const versions = await readContextSourceVersions(receipt.source_root, { config, questions, input: {
         client_version: coverage.client_version, model: measuredVersions.main_model, reasoning_effort: measuredVersions.reasoning_effort } });
       const candidateConfig = { ...config, mode: 'enforce', jev_enabled: options.variant === 'hybrid' && config.jev_enabled,

@@ -25,15 +25,16 @@ function pilotVersionFingerprint(versions, variant) {
 
 function pilotRunTokens(run) {
   const codex = run.codex_usage; const jev = run.jev_usage;
-  if (!run.native_execution_verified || !run.task_coverage_verified || !codex?.available || !jev?.available ||
+  if (run.native_execution_verified !== true || run.task_coverage_verified !== true || codex?.available !== true || jev?.available !== true ||
       !['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens']
         .every(key => Number.isSafeInteger(codex[key]) && codex[key] >= 0) ||
       codex.total_tokens !== codex.input_tokens + codex.output_tokens || codex.cached_input_tokens > codex.input_tokens ||
       codex.cache_write_input_tokens > codex.input_tokens || codex.reasoning_output_tokens > codex.output_tokens ||
       !['input_tokens', 'output_tokens', 'total_tokens', 'requests'].every(key => Number.isSafeInteger(jev[key]) && jev[key] >= 0) ||
       jev.total_tokens !== jev.input_tokens + jev.output_tokens ||
-      (jev.requests === 0 && jev.total_tokens !== 0) || !Array.isArray(jev.models) ||
-      (jev.requests > 0 && !jev.models.includes(run.versions?.jev_model))) return null;
+      !Array.isArray(jev.models) || (jev.requests === 0 && (jev.total_tokens !== 0 || jev.models.length !== 0)) ||
+      (run.variant !== 'hybrid' && (jev.requests !== 0 || jev.models.length !== 0)) ||
+      (jev.requests > 0 && (!jev.models.length || jev.models.some(model => model !== run.versions?.jev_model)))) return null;
   const total = codex.total_tokens + jev.total_tokens;
   return Number.isSafeInteger(total) ? total : null;
 }
@@ -91,7 +92,7 @@ export function comparePilotRuns(runs) {
         durations.push(candidate.duration_ms - baseline.duration_ms);
         if (variant === 'hybrid') {
           const deterministicTokens = pilotRunTokens(deterministic);
-          if (deterministicTokens === null || !pilotRunQuality(deterministic) || !baseVersion ||
+          if (deterministic.family !== family || deterministicTokens === null || !pilotRunQuality(deterministic) || !baseVersion ||
               baseVersion !== pilotVersionFingerprint(deterministic.versions, 'deterministic')) limitations.push('Deterministic comparison is not verified.');
           else if (candidateTokens !== null) increments.push(deterministicTokens - candidateTokens);
           if (candidate.duration_ms > deterministic.duration_ms) limitations.push('Hybrid increases latency over deterministic.');
