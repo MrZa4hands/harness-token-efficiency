@@ -4,6 +4,8 @@ import { promisify } from 'node:util';
 import { constants } from 'node:fs';
 import { realpath, lstat, mkdir, open, rename, unlink, readdir } from 'node:fs/promises';
 import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
+import jevQuestions from '../config/jev-questions.json' with { type: 'json' };
+import { validateJevContextResponse } from './jev-client.mjs';
 
 /** @typedef {{session_id:string,turn_id:string,repo_root:string,repo_revision:string,inventory:string[],
  * request_hash:string,recent_requests:{text:string,hash:string}[],protected_requirements:string[],
@@ -156,7 +158,7 @@ export async function captureContextTask(input, previous) {
       status !== await git(['status', '--porcelain=v1', '-z', '--untracked-files=all']) ||
       index !== await git(['ls-files', '--stage', '-z'])) throw new Error('Context inventory changed during capture; baseline retained.');
   const knownFollowup = contextFollowup.test(input.prompt.trim());
-  const continuity = knownFollowup ? (previous ? 'known' : 'unknown') : (previous ? 'unknown' : 'new');
+  const continuity = knownFollowup ? (previous && previous.continuity !== 'unknown' ? 'known' : 'unknown') : (previous ? 'unknown' : 'new');
   const requests = [...(previous?.recent_requests ?? []), { text: input.prompt, hash: contextHash(input.prompt) }].slice(-6);
   const explicitPaths = inventory.filter(path => input.prompt.includes(path));
   const symbols = [...input.prompt.matchAll(/`([A-Za-z_$][A-Za-z0-9_$]*)`/g)].map(match => match[1]);
@@ -168,7 +170,7 @@ export async function captureContextTask(input, previous) {
     repo_root: root, repo_revision: contextHash({ head, index, status, contents }), inventory, inventory_hash: inventoryHash,
     unreadable_paths: unreadablePaths, request_hash: contextHash(input.prompt), recent_requests: requests,
     protected_requirements: protectedRequirements, continuity,
-    active_request: continuity === 'known' ? previous.active_request : requests.at(-1),
+    active_request: previous ? previous.active_request : requests.at(-1),
     context_epoch: input.context_epoch ?? previous?.context_epoch ?? randomUUID(),
     permissions_hash: contextHash({ mode: input.permission_mode ?? 'unknown', model: input.model ?? 'unknown' }),
     corpus_hash: contextHash(input.corpus_hash ?? inventoryHash), versions: input.versions ?? {},
@@ -200,7 +202,7 @@ export async function saveContextTask(stateDir, state) {
 
 /** Resolve context facts from explicit requests without treating message length as difficulty. */
 export function resolveContextFacts(state) {
-  const text = state.active_request.text;
+  const text = state.continuity === 'unknown' ? state.recent_requests.at(-1).text : state.active_request.text;
   const explicitPaths = state.protected_requirements.filter(value => value.startsWith('path:')).map(value => value.slice(5));
   const literalSymbols = state.protected_requirements.filter(value => value.startsWith('symbol:')).map(value => value.slice(7));
   const review = /\b(?:review|revisa|revisi[oó]n|diff|changes|cambios)\b/iu.test(text);
@@ -216,10 +218,37 @@ export function resolveContextFacts(state) {
 export function resolveContextDecision(state, facts, jevResponse) {
   const allowed = ['code_context', 'code_review_context', 'documentation_context'];
   const operation = state.continuity !== 'unknown' && allowed.includes(facts.known_operation) ? facts.known_operation : 'baseline';
-  return { decision_id: randomUUID(), operation, source: 'rule', action: operation === 'baseline' ? 'baseline' : 'prefetch',
+  const decision = { decision_id: randomUUID(), operation, source: 'rule', action: operation === 'baseline' ? 'baseline' : 'prefetch',
     chosen_candidates: [...(facts.explicit_paths ?? [])], versions: state.versions, probabilities: {},
     fallback_reason: operation === 'baseline' ? (state.continuity === 'unknown' ? 'uncertain-continuity' : 'no-conclusive-rule') : null,
     duration_ms: 0, applied: false };
+  if (operation !== 'baseline' || !jevResponse) return decision;
+  if (!validateJevContextResponse(jevResponse, jevQuestions)) return { ...decision, fallback_reason: 'invalid-response' };
+  const answers = jevResponse.answers;
+  const yes = name => answers[name].noul >= 0.90;
+  const no = name => answers[name].noul <= 1 - 0.90;
+  const choice = answers.context_operation;
+  const probabilities = Object.values(choice.probabilities).sort((a, b) => b - a);
+  const classified = { ...decision, source: 'jev', versions: { ...state.versions, jev_model: jevResponse.model },
+    probabilities: Object.fromEntries(Object.entries(answers).map(([name, answer]) => [name, answer.type === 'noul' ? answer.noul : answer.probabilities])),
+    provider_usage: jevResponse.usage, provider_attempts: 1 };
+  if (Object.keys(answers).filter(name => name !== 'context_operation').some(name => !yes(name) && !no(name)) ||
+      choice.confidence < 0.90 || probabilities[0] < 0.90 || probabilities[0] - probabilities[1] < 0.20) {
+    return { ...classified, fallback_reason: 'uncertain-classification' };
+  }
+  if ((facts.exhaustive && no('requires_exhaustive_coverage')) ||
+      (state.continuity === 'known' && no('continues_active_goal')) ||
+      (yes('needs_change_context') && choice.choice !== 'code_review_context') ||
+      (choice.choice === 'code_review_context' && !yes('needs_change_context')) ||
+      (choice.choice === 'documentation_context' && !yes('needs_documentation_context')) ||
+      (yes('needs_documentation_context') && !['documentation_context', 'code_review_context'].includes(choice.choice)) ||
+      (choice.choice !== 'baseline' && !yes('needs_repository_context')) ||
+      (choice.choice === 'baseline' && (yes('needs_repository_context') || yes('needs_change_context') || yes('needs_documentation_context')))) {
+    return { ...classified, fallback_reason: 'contradictory-classification' };
+  }
+  if (state.continuity === 'unknown' && !yes('continues_active_goal')) return { ...classified, fallback_reason: 'new-goal-baseline' };
+  return { ...classified, operation: choice.choice, action: choice.choice === 'baseline' ? 'baseline' : 'prefetch',
+    fallback_reason: choice.choice === 'baseline' ? 'classified-baseline' : null };
 }
 
 /** Record an immutable context decision containing metadata only, never request text. */
@@ -231,10 +260,12 @@ export async function recordContextDecision(stateDir, state, decision) {
   const metadata = { schema_version: 1, decision_id: decision.decision_id, session_hash: contextHash(state.session_id),
     turn_hash: contextHash(state.turn_id), repo_hash: contextHash(state.repo_root), request_hash: state.request_hash,
     repo_revision: state.repo_revision, inventory_hash: state.inventory_hash, permissions_hash: state.permissions_hash,
-    corpus_hash: state.corpus_hash, context_epoch_hash: contextHash(state.context_epoch), versions: state.versions,
+    corpus_hash: state.corpus_hash, context_epoch_hash: contextHash(state.context_epoch), versions: decision.versions,
     operation: decision.operation, source: decision.source, action: decision.action,
     candidate_hashes: decision.chosen_candidates.map(contextHash), probabilities: decision.probabilities,
-    fallback_reason: decision.fallback_reason, duration_ms: decision.duration_ms, applied: false, updated_at: new Date().toISOString() };
+    fallback_reason: decision.fallback_reason, duration_ms: decision.duration_ms, provider_usage: decision.provider_usage ?? null,
+    provider_attempts: decision.provider_attempts ?? 0,
+    applied: false, updated_at: new Date().toISOString() };
   let file;
   try {
     file = await open(join(sessionPath, 'decision-' + decision.decision_id + '.json'), 'wx', 0o600);

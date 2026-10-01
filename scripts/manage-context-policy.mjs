@@ -254,18 +254,41 @@ if (installEntryPath && import.meta.url === pathToFileURL(installEntryPath).href
   const args = process.argv.slice(2);
   const action = args.shift();
   const options = { action, apply: false };
+  let configureJev = false;
   let valid = true;
   while (args.length) {
     const flag = args.shift();
     if (flag === '--apply') options.apply = true;
+    else if (flag === '--configure-jev' && !configureJev) configureJev = true;
     else if (['--repo', '--source'].includes(flag) && args.length) options[flag === '--repo' ? 'repo_root' : 'source_root'] = args.shift();
     else valid = false;
   }
-  if (!valid || !options.repo_root || !options.source_root) {
-    process.stderr.write('Context installer: install|remove --repo PATH --source PATH [--apply].\n');
+  if (!valid || !options.repo_root || !options.source_root || (configureJev && action !== 'install')) {
+    process.stderr.write('Context installer: install|remove --repo PATH --source PATH [--apply] [--configure-jev].\n');
+    process.exitCode = 1;
+  } else if (configureJev && options.apply && !process.stdin.isTTY) {
+    process.stderr.write('Context installer Jev setup requires an interactive terminal; registration preserved.\n');
     process.exitCode = 1;
   } else {
     const result = await updateContextPolicyInstall(options);
+    if (!result.error && configureJev) {
+      result.jev_setup = { status: options.apply ? 'pending' : 'requires-apply', credential_store: 'macOS Keychain' };
+      if (options.apply) {
+        try {
+          const { configureJevCredential } = await import('../src/context-credentials.mjs');
+          const { configureJevModel } = await import('../src/jev-client.mjs');
+          const apiKey = await configureJevCredential();
+          result.credential_updated = true; result.changed = true;
+          const setup = await configureJevModel(options.repo_root, { apiKey });
+          result.jev_setup = { ...setup, credential_store: 'macOS Keychain' };
+          if (setup.status === 'ok') result.files = [...new Set([...result.files,
+            join(await realpath(options.repo_root), '.codex/codex-context-policy.json')])];
+          else result.error = 'Context installer Jev model discovery failed: ' + setup.fallback_reason + '; existing policy mode retained.';
+        } catch {
+          result.error = 'Context installer Jev setup failed; hook changes above may have been applied. No credential was exported.';
+        }
+      }
+    }
     process.stdout.write(encodeInstallJson(result));
     process.exitCode = result.error ? 1 : 0;
   }

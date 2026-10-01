@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { captureContextTask, readContextTask, saveContextTask, resolveContextFacts,
   resolveContextDecision, recordContextDecision } from '../src/context-state.mjs';
+import { minimizeJevState } from '../src/jev-client.mjs';
 
 const temporaryRoot = await realpath(await mkdtemp(join(tmpdir(), 'context-state-tests-')));
 after(() => assert.equal(spawnSync('trash', [temporaryRoot]).status, 0));
@@ -158,4 +159,21 @@ test('private_state_expiration_and_ancestor_boundaries', async () => {
   await symlink(outside, ancestor);
   await assert.rejects(saveContextTask(join(ancestor, 'parent', 'state'), state), /Context state directory rejected/);
   assert.deepEqual(await readdir(join(outside, 'parent')), []);
+});
+
+// Unknown continuity must keep the previous explicit goal available to a bounded semantic observation.
+test('unknown_context_retains_prior_goal_for_semantic_observation', async () => {
+  const root = await createStateRepository();
+  const prior = await captureContextTask(hookInput(root), null);
+  const next = await captureContextTask(hookInput(root, 'session-one', {
+    turn_id: 'different-turn', prompt: 'Where is that used?' }), prior);
+  const facts = resolveContextFacts(next);
+  assert.equal(next.continuity, 'unknown');
+  assert.equal(resolveContextDecision(next, facts, null).action, 'baseline');
+  assert.equal(minimizeJevState(next, facts).active_goal, 'Review all changes and inspect `src/example.mjs`.');
+  assert.equal(minimizeJevState(next, facts).request, 'Where is that used?');
+  const uncertainFollowup = await captureContextTask(hookInput(root, 'session-one', {
+    turn_id: 'uncertain-followup', prompt: 'hazlo' }), next);
+  assert.equal(resolveContextDecision(uncertainFollowup, resolveContextFacts(uncertainFollowup), null).action, 'baseline',
+    'An unresolved intervening request cannot manufacture known continuity');
 });

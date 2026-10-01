@@ -10,6 +10,37 @@ const usageFields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_t
 const unknownCodexUsage = () => Object.fromEntries([['available', false], ...usageFields.map(field => [field, null])]);
 const corpusCategories = new Set(['code_analysis', 'review', 'documentation', 'checks', 'follow_up', 'exhaustive']);
 const fixturePath = new URL('../evaluation/pilot-fixture.json', import.meta.url);
+const unknownJevUsage = () => ({ available: false, input_tokens: null, output_tokens: null, total_tokens: null, requests: null, models: [] });
+
+/** Collect Jev usage from immutable decision records; attempted calls with missing usage remain unknown. */
+export function collectJevUsage(records) {
+  const unknown = unknownJevUsage;
+  if (!Array.isArray(records) || !records.length) return unknown();
+  const decisions = new Map();
+  for (const record of records) {
+    if (!record || typeof record.decision_id !== 'string' || !record.decision_id ||
+        ![0, 1].includes(record.provider_attempts)) return unknown();
+    const usage = record.provider_usage;
+    const model = record.versions?.jev_model ?? null;
+    if (record.provider_attempts === 1 && (!usage || typeof model !== 'string' || !/^[A-Za-z0-9._:/-]{1,128}$/.test(model) ||
+        !['input_tokens', 'output_tokens'].every(key => Number.isSafeInteger(usage[key]) && usage[key] >= 0))) return unknown();
+    if (record.provider_attempts === 0 && usage !== null) return unknown();
+    const measured = { provider_attempts: record.provider_attempts, provider_usage: usage, model };
+    const previous = decisions.get(record.decision_id);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(measured)) return unknown();
+    decisions.set(record.decision_id, measured);
+  }
+  const totals = { available: true, input_tokens: 0, output_tokens: 0, total_tokens: 0, requests: 0, models: [] };
+  const models = new Set();
+  for (const record of decisions.values()) {
+    if (!record.provider_attempts) continue;
+    totals.requests++; models.add(record.model);
+    totals.input_tokens += record.provider_usage.input_tokens; totals.output_tokens += record.provider_usage.output_tokens;
+    totals.total_tokens = totals.input_tokens + totals.output_tokens;
+    if (![totals.input_tokens, totals.output_tokens, totals.total_tokens].every(Number.isSafeInteger)) return unknown();
+  }
+  totals.models = [...models].sort(); return totals;
+}
 
 /** Collect cumulative token usage for supplied thread epochs; task/worker coverage is separate. */
 export function collectCodexUsage(events, clientVersion) {
@@ -171,7 +202,7 @@ if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath
   try {
     while (args.length) {
       const flag = args.shift();
-      if (!['--transcript', '--client-version', '--tasks', '--repo', '--variant'].includes(flag) || !args.length || options[flag]) throw new Error('Pilot evaluation CLI arguments invalid');
+      if (!['--transcript', '--client-version', '--tasks', '--repo', '--variant', '--decisions'].includes(flag) || !args.length || options[flag]) throw new Error('Pilot evaluation CLI arguments invalid');
       options[flag] = args.shift();
     }
     let result;
@@ -181,6 +212,10 @@ if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath
       if (measured.trailingIncomplete) process.stderr.write('Codex usage: ignored incomplete final line.\n');
       process.stderr.write('Codex usage: worker coverage and complete-task totals are unverified; no promotion from these counters.\n');
       if (!result.available) { process.stderr.write('Codex usage: unsupported version or invalid counters; totals unknown.\n'); process.exitCode = 1; }
+    } else if (command === 'jev-usage' && options['--decisions']) {
+      const text = await readFile(options['--decisions'], 'utf8');
+      result = collectJevUsage(text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)));
+      if (!result.available) { process.stderr.write('Jev usage: missing or inconsistent billing; totals unknown.\n'); process.exitCode = 1; }
     } else if (command === 'corpus' && options['--tasks']) {
       const text = await readFile(options['--tasks'], 'utf8');
       result = validatePilotCorpus(text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)));
@@ -191,7 +226,7 @@ if (evaluationEntryPath && import.meta.url === pathToFileURL(evaluationEntryPath
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch (error) {
     process.stderr.write('Pilot evaluation failed: ' + (error instanceof SyntaxError ? 'Malformed JSON input.' : error.message) + '\n');
-    process.stdout.write(JSON.stringify(command === 'usage' ? { ...unknownCodexUsage(), measurement_scope: 'session', worker_coverage_verified: false } : { valid: false, errors: ['Input rejected.'] }) + '\n');
+    process.stdout.write(JSON.stringify(command === 'jev-usage' ? unknownJevUsage() : command === 'usage' ? { ...unknownCodexUsage(), measurement_scope: 'session', worker_coverage_verified: false } : { valid: false, errors: ['Input rejected.'] }) + '\n');
     process.exitCode = 1;
   }
 }

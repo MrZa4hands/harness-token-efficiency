@@ -281,7 +281,8 @@ test('installation_preserves_literal_source_paths_and_file_modes', async () => {
 test('invalid_configuration_is_off_and_malformed_hooks_are_preserved', async () => {
   const repoRoot = await createInstallTarget();
   const configPath = join(repoRoot, '.codex/codex-context-policy.json');
-  for (const text of ['not json', 'null', '{}', '{"mode":"enforce","jev_enabled":"yes"}', '{"mode":"bad","jev_enabled":true}']) {
+  for (const text of ['not json', 'null', '{}', '{"mode":"enforce","jev_enabled":"yes"}', '{"mode":"bad","jev_enabled":true}',
+    JSON.stringify({ mode: 'enforce', jev_enabled: true, padding: 'x'.repeat(32001) })]) {
     await writeFile(configPath, text);
     assert.equal((await readContextPolicyConfig(repoRoot)).mode, 'off');
     assert.deepEqual(await handleCodexHook({ cwd: repoRoot, hook_event_name: 'UserPromptSubmit', session_id: 'one' }), emptyHookResult);

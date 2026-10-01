@@ -1,0 +1,32 @@
+{
+  "continues_active_goal": {
+    "type": "noul",
+    "instructions": "Does `request` continue `active_goal`? Answer no when no active goal is available."
+  },
+  "needs_repository_context": {
+    "type": "noul",
+    "instructions": "Would reading this repository help answer `request`?"
+  },
+  "needs_change_context": {
+    "type": "noul",
+    "instructions": "Does answering `request` require inspecting repository changes?"
+  },
+  "needs_documentation_context": {
+    "type": "noul",
+    "instructions": "Does answering `request` require reading repository documentation?"
+  },
+  "requires_exhaustive_coverage": {
+    "type": "noul",
+    "instructions": "Does `request` require exhaustive coverage rather than a selected initial sample? Explicit exhaustive facts always remain protected."
+  },
+  "context_operation": {
+    "type": "choice",
+    "instructions": "Choose the existing read recipe that would help answer `request`; consider `active_goal` only when the request continues it.",
+    "criteria": {
+      "code_context": "Inspect or explain repository code without reviewing changes.",
+      "code_review_context": "Review repository changes together with relevant code.",
+      "documentation_context": "Read repository documentation to answer or update documentation.",
+      "baseline": "No useful repository read recipe, unclear request, or insufficient context."
+    }
+  }
+}
