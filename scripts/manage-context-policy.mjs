@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 const hookEvents = new Set(['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostCompact', 'SessionStart', 'SessionEnd']);
 const encodeInstallJson = value => JSON.stringify(value, null, 2) + '\n';
@@ -25,18 +26,47 @@ function parseInstallObject(text, fallback) {
   return value;
 }
 
+function resolveContextHooksRoot(root) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+  let records;
+  try {
+    records = execFileSync('git', ['-C', root, 'worktree', 'list', '--porcelain', '-z'], {
+      env, encoding: 'utf8', timeout: 3000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+    }).split('\0');
+  } catch {
+    throw new Error('Context install cannot resolve registered Git worktrees');
+  }
+  if (!records.includes('worktree ' + root) || records.includes('bare') || !records[0].startsWith('worktree ')) {
+    throw new Error('Context install requires a registered worktree with a primary checkout');
+  }
+  return records[0].slice('worktree '.length);
+}
+
 async function prepareContextInstall({ repo_root, source_root, action }) {
   if (!['install', 'remove'].includes(action)) throw new Error('Context install action must be install or remove');
   const root = await realpath(repo_root);
   const sourceRoot = await realpath(source_root);
   const codexDir = join(root, '.codex');
+  let hooksRoot = root;
+  let gitMetadata;
   try {
-    const stat = await lstat(codexDir);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Context install .codex directory must not be a symlink');
+    gitMetadata = await lstat(join(root, '.git'));
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  const hooksPath = join(codexDir, 'hooks.json');
+  if (gitMetadata?.isSymbolicLink()) throw new Error('Context install Git metadata must not be a symlink');
+  if (gitMetadata?.isFile()) hooksRoot = await realpath(resolveContextHooksRoot(root));
+  const hooksDir = join(hooksRoot, '.codex');
+  const directories = [...new Set([hooksDir, codexDir])];
+  for (const directory of directories) {
+    try {
+      const stat = await lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Context install .codex directory must not be a symlink');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  const hooksPath = join(hooksDir, 'hooks.json');
   const policyPath = join(codexDir, 'codex-context-policy.json');
   const receiptPath = join(codexDir, 'codex-context-policy-install.json');
   const hooksFile = await readInstallFile(hooksPath);
@@ -49,7 +79,7 @@ async function prepareContextInstall({ repo_root, source_root, action }) {
   hooksDocument.hooks = hooks;
   if (policyFile.text !== null) parseInstallObject(policyFile.text, null);
   const receipt = receiptFile.text === null ? null : parseInstallObject(receiptFile.text, null);
-  if (receipt && (receipt.version !== 1 || receipt.source_root !== sourceRoot ||
+  if (receipt && (receipt.version !== 1 || receipt.source_root !== sourceRoot || (receipt.hooks_root ?? root) !== hooksRoot ||
       !Array.isArray(receipt.owned_groups))) throw new Error('Context install receipt is incompatible');
   const originalHooks = structuredClone(hooksDocument);
   let policyText = policyFile.text;
@@ -77,7 +107,7 @@ async function prepareContextInstall({ repo_root, source_root, action }) {
       }
     }
     if (policyText === null) policyText = await readFile(join(sourceRoot, 'config/context-policy.template.json'), 'utf8');
-    receiptText = encodeInstallJson({ version: 1, source_root: sourceRoot, owned_groups: owned,
+    receiptText = encodeInstallJson({ version: 1, source_root: sourceRoot, hooks_root: hooksRoot, owned_groups: owned,
       created_hooks: receipt?.created_hooks ?? hooksFile.text === null,
       created_policy_text: receipt?.created_policy_text ?? (policyFile.text === null ? policyText : null) });
   } else if (receipt) {
@@ -96,7 +126,7 @@ async function prepareContextInstall({ repo_root, source_root, action }) {
   for (const [path, before, after] of [[hooksPath, hooksFile, hooksText], [policyPath, policyFile, policyText], [receiptPath, receiptFile, receiptText]]) {
     if (before.text !== after) changes.push({ path, before, after });
   }
-  return { codexDir, changes };
+  return { hooksDir, directories, changes };
 }
 
 async function applyContextInstallChange(change) {
@@ -117,7 +147,7 @@ async function applyContextInstallChange(change) {
   }
 }
 
-/** Add or remove only owned context hooks; installation is a dry run unless apply is true. */
+/** Add or remove owned context hooks in the primary checkout; policy stays local and writes require apply. */
 export async function updateContextPolicyInstall(options) {
   let lock;
   let lockPath;
@@ -126,8 +156,8 @@ export async function updateContextPolicyInstall(options) {
     if (!options.apply || preview.changes.length === 0) return {
       changed: preview.changes.length > 0, files: preview.changes.map(change => change.path), error: null,
     };
-    await mkdir(preview.codexDir, { recursive: true, mode: 0o700 });
-    lockPath = join(preview.codexDir, '.codex-context-policy-install.lock');
+    for (const directory of preview.directories) await mkdir(directory, { recursive: true, mode: 0o700 });
+    lockPath = join(preview.hooksDir, '.codex-context-policy-install.lock');
     lock = await open(lockPath, 'wx', 0o600);
     const plan = await prepareContextInstall(options);
     for (const change of plan.changes) await applyContextInstallChange(change);

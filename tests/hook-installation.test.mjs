@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, lstat, access, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, lstat, access, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -61,6 +61,40 @@ test('off_and_additive_install', async () => {
   assert.deepEqual(afterRemoval.hooks.UserPromptSubmit, [...foreignHooks.hooks.UserPromptSubmit, extra]);
   assert.equal((await updateContextPolicyInstall({ ...operation, action: 'remove', apply: true })).changed, false);
   assert.equal((await lstat(hooksPath)).mode & 0o777, 0o644);
+});
+
+// Native Codex discovers linked-worktree hooks in the primary checkout.
+test('linked_worktree_install_uses_primary_hook_registration', async () => {
+  const repoRoot = await realpath(await createInstallTarget());
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+  for (const args of [['init', '--initial-branch=fixture-main'], ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+    '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'fixture']]) {
+    assert.equal(spawnSync('git', args, { cwd: repoRoot, env: environment }).status, 0);
+  }
+  const parent = await realpath(await mkdtemp(join(tmpdir(), 'context-linked-')));
+  const worktree = join(parent, 'worktree');
+  assert.equal(spawnSync('git', ['worktree', 'add', '--detach', worktree, 'HEAD'], { cwd: repoRoot, env: environment }).status, 0);
+  await mkdir(join(worktree, '.codex'));
+  const localHooks = JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command: 'local-foreign' }] }] } });
+  await writeFile(join(worktree, '.codex/hooks.json'), localHooks);
+  await writeFile(join(worktree, '.codex/codex-context-policy-coverage.json'), await readFile(join(repoRoot, '.codex/codex-context-policy-coverage.json')));
+  const operation = { repo_root: worktree, source_root: sourceRoot, action: 'install', apply: true };
+  const original = await readFile(join(repoRoot, '.codex/hooks.json'), 'utf8');
+  const preview = await updateContextPolicyInstall({ ...operation, apply: false });
+  assert.equal(preview.error, null);
+  assert.equal(await readFile(join(repoRoot, '.codex/hooks.json'), 'utf8'), original);
+  const installed = await updateContextPolicyInstall(operation);
+  assert.equal(installed.error, null);
+  const primary = JSON.parse(await readFile(join(repoRoot, '.codex/hooks.json'), 'utf8'));
+  assert.equal(primary.hooks.UserPromptSubmit.length, 2);
+  assert.deepEqual(primary.hooks.PreToolUse, foreignHooks.hooks.PreToolUse);
+  assert.equal(await readFile(join(worktree, '.codex/hooks.json'), 'utf8'), localHooks);
+  assert.deepEqual(await readContextPolicyConfig(worktree), { mode: 'off', jev_enabled: true, operations: {} });
+  assert.equal(await access(join(repoRoot, '.codex/codex-context-policy.json')).then(() => true, () => false), false);
+  assert.equal((await updateContextPolicyInstall(operation)).changed, false);
+  assert.equal((await updateContextPolicyInstall({ ...operation, action: 'remove' })).error, null);
+  assert.deepEqual(JSON.parse(await readFile(join(repoRoot, '.codex/hooks.json'), 'utf8')), foreignHooks);
+  assert.equal(await readFile(join(worktree, '.codex/hooks.json'), 'utf8'), localHooks);
 });
 
 test('invalid_configuration_is_off_and_malformed_hooks_are_preserved', async () => {
