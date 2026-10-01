@@ -1,7 +1,7 @@
 import { captureRepositorySnapshot } from './context-state.mjs';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { open, lstat, realpath, mkdtemp, writeFile } from 'node:fs/promises';
+import { open, lstat, realpath, mkdtemp, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, basename, extname } from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -11,17 +11,39 @@ export { readContext } from './context-results.mjs';
 
 const runRepositoryProcess = promisify(execFile);
 
-async function repositoryGitBytes(root, args, signal, allowedCodes = [0]) {
+async function repositoryGitBytes(root, args, signal, allowedCodes = [0], input) {
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0' };
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1',
+    GIT_ALLOW_PROTOCOL: '', GIT_NO_REPLACE_OBJECTS: '1', GIT_ATTR_NOSYSTEM: '1', GIT_CEILING_DIRECTORIES: dirname(root) };
   try {
-    return (await runRepositoryProcess('git', ['-c', 'core.fsmonitor=false', ...args],
-      { cwd: root, env, encoding: 'buffer', signal, maxBuffer: 64_000_000, timeout: 2000 })).stdout;
+    const pending = runRepositoryProcess('git', ['-c', 'core.fsmonitor=false', '-c', 'core.attributesFile=/dev/null', ...args],
+      { cwd: root, env, encoding: 'buffer', signal, maxBuffer: 64_000_000, timeout: 2000 });
+    if (input !== undefined) { pending.child.stdin.on('error', () => {}); pending.child.stdin.end(input); }
+    return (await pending).stdout;
   } catch (error) {
     if (allowedCodes.includes(error.code) && Buffer.isBuffer(error.stdout)) return error.stdout;
     throw Object.assign(new Error('Repository context Git failed.'), { exit_code: Number.isInteger(error.code) ? error.code : 1,
       stderr: Buffer.isBuffer(error.stderr) ? new TextDecoder('utf-8', { fatal: true }).decode(error.stderr) : 'Repository context Git unavailable.' });
   }
+}
+
+async function readRepositoryBlobs(root, items, signal) {
+  const ids = [...new Set(items.map(item => item.oid).filter(Boolean))]; const blobs = new Map();
+  if (!ids.length) return blobs;
+  const bytes = await repositoryGitBytes(root, ['cat-file', '--batch'], signal, [0], ids.join('\n') + '\n');
+  let offset = 0;
+  for (const id of ids) {
+    signal.throwIfAborted();
+    const end = bytes.indexOf(10, offset); const header = bytes.subarray(offset, end).toString('ascii');
+    if (header === id + ' missing') throw Object.assign(new Error('Repository context object missing.'), { exit_code: 1, stderr: header + '\n' });
+    const fields = header.split(' '); const size = Number(fields[2]);
+    if (end < offset || fields.length !== 3 || fields[0] !== id || fields[1] !== 'blob' ||
+        !Number.isSafeInteger(size) || size < 0 || end + size + 1 >= bytes.length || bytes[end + size + 1] !== 10)
+      throw new Error('Repository context object bytes rejected.');
+    blobs.set(id, bytes.subarray(end + 1, end + size + 1)); offset = end + size + 2;
+  }
+  if (offset !== bytes.length) throw new Error('Repository context object bytes rejected.');
+  return blobs;
 }
 
 function parseRepositoryObjects(text, index) {
@@ -47,6 +69,7 @@ async function repositoryCommitTree(root, commit, signal) {
 
 async function rawRepositoryDiff(before, after, signal) {
   const directory = await mkdtemp(join(tmpdir(), 'codex-context-diff-'));
+  let primaryError;
   try {
     await writeFile(join(directory, 'before'), before, { mode: 0o600 });
     await writeFile(join(directory, 'after'), after, { mode: 0o600 });
@@ -54,7 +77,19 @@ async function rawRepositoryDiff(before, after, signal) {
     const output = await repositoryGitBytes(directory, ['diff', '--no-index', '--no-ext-diff', '--no-textconv',
       '--no-color', '--no-prefix', '--', 'before', 'after'], signal, [0, 1]);
     return new TextDecoder('utf-8', { fatal: true }).decode(output);
-  } finally { await runRepositoryProcess('trash', [directory], { timeout: 1000 }); }
+  } catch (error) { primaryError = error; throw error; }
+  finally {
+    // Purge only freshly created scratch bytes; Trash receives an empty owned directory.
+    try {
+      for (const name of ['before', 'after']) await unlink(join(directory, name)).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      await runRepositoryProcess('trash', [directory], { timeout: 1000, signal });
+    } catch (error) {
+      const diagnostic = typeof error.stderr === 'string' && error.stderr ? error.stderr : 'Repository context scratch cleanup failed.';
+      if (primaryError) primaryError.stderr = (primaryError.stderr ?? primaryError.message) + '\n' + diagnostic;
+      else throw Object.assign(new Error('Repository context scratch cleanup failed.'), {
+        exit_code: Number.isInteger(error.code) ? error.code : 1, stderr: diagnostic });
+    }
+  }
 }
 
 /** Get repository changes from raw object/index/working bytes, preserving separate staged and unstaged evidence.
@@ -77,15 +112,15 @@ export async function getRepositoryChanges(request) {
     } else {
       if (snapshot.unreadable_paths.length) throw new Error('Repository context unreadable change evidence rejected.');
       const index = parseRepositoryObjects(snapshot.index, true);
-      const working = new Map(snapshot.files.map(file => [file.path, { ...file, mode: file.mode & 0o111 ? '100755' : '100644' }]));
+      const working = new Map(snapshot.files.map(file => [file.path, { ...file, mode: file.mode & 0o100 ? '100755' : '100644' }]));
       stages.push({ stage: 'staged', before: await tree(snapshot.head), after: index },
         { stage: 'unstaged', before: index, after: working });
     }
-    const entries = []; const blobCache = new Map();
+    const entries = []; const blobCache = await readRepositoryBlobs(root,
+      stages.flatMap(stage => [...stage.before.values(), ...stage.after.values()]), signal);
     const bytesFor = async item => {
       if (!item) return Buffer.alloc(0);
       if (!item.oid) return readRepositoryContextFile(root, item, signal);
-      if (!blobCache.has(item.oid)) blobCache.set(item.oid, await repositoryGitBytes(root, ['cat-file', 'blob', item.oid], signal));
       return blobCache.get(item.oid);
     };
     for (const { stage, before, after } of stages) {
@@ -223,12 +258,14 @@ export async function selectCodeContext(request) {
     const evidence = new Map(sourceFiles.map(file => [file.path, file]));
     for (const path of request.paths) if (!evidence.has(path)) throw new Error('Repository context explicit path unavailable.');
     const files = [];
+    const eligible = item => request.paths.includes(item.path) || /\.(?:[cm]?[jt]sx?|md|markdown|json|ya?ml|toml|py|rb|rs|go|sh)$/i.test(item.path);
+    const blobs = await readRepositoryBlobs(root, sourceFiles.filter(item => eligible(item) && item.mode !== '120000'), signal);
     let loadedBytes = 0;
     for (const item of sourceFiles) {
       checkDeadline();
-      if (!request.paths.includes(item.path) && !/\.(?:[cm]?[jt]sx?|md|markdown|json|ya?ml|toml|py|rb|rs|go|sh)$/i.test(item.path)) continue;
+      if (!eligible(item)) continue;
       if (item.mode === '120000') { if (request.paths.includes(item.path)) throw new Error('Repository context symbolic link evidence rejected.'); continue; }
-      const bytes = item.oid ? await repositoryGitBytes(root, ['cat-file', 'blob', item.oid], signal)
+      const bytes = item.oid ? blobs.get(item.oid)
         : await readRepositoryContextFile(root, item, signal);
       loadedBytes += bytes.length;
       if (loadedBytes > 64_000_000) throw new Error('Repository context evidence byte limit exceeded.');
@@ -253,7 +290,7 @@ export async function selectCodeContext(request) {
       if (file.encoding !== 'utf8') continue;
       // ponytail: literal relative imports only; dynamic references keep dependency coverage partial.
       for (const local of repositoryRelativeImports(root, file)) {
-        if (local === '..' || local.startsWith('../') || isAbsolute(local)) throw new Error('Repository context dependency path rejected.');
+        if (local === '..' || local.startsWith('../') || isAbsolute(local)) continue;
         if (byPath.has(local)) selected.add(local);
       }
     }

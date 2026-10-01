@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { constants } from 'node:fs';
-import { realpath, lstat, mkdir, open, rename, unlink, opendir } from 'node:fs/promises';
+import { realpath, lstat, mkdir, open, rename, unlink, opendir, readlink } from 'node:fs/promises';
 import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
 import jevQuestions from '../config/jev-questions.json' with { type: 'json' };
 import { validateJevContextResponse } from './jev-client.mjs';
@@ -112,6 +112,22 @@ export async function markContextHistoryGap(stateDir, repoRoot, sessionId) {
   finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
 }
 
+async function readContextInstallReceipt(root, signal) {
+  let file;
+  try {
+    const source = await realpath(new URL('../', import.meta.url));
+    if (await realpath(join(root, '.codex')) !== join(root, '.codex')) return null;
+    file = await open(join(root, '.codex/codex-context-policy-install.json'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0 || stat.size > 32000) return null;
+    const buffer = Buffer.alloc(32001); const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    signal.throwIfAborted(); if (bytesRead > 32000) return null;
+    const receipt = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, bytesRead)));
+    return receipt.version === 1 && receipt.source_root === source && Array.isArray(receipt.owned_groups) ? receipt : null;
+  } catch { signal.throwIfAborted(); return null; }
+  finally { await file?.close(); }
+}
+
 /** Capture a raw repository snapshot without Git conversion filters or external symlink reads.
  * @param {string} repoRoot
  * @param {AbortSignal} [signal]
@@ -123,11 +139,16 @@ export async function captureRepositorySnapshot(repoRoot, signal = AbortSignal.t
   const checkDeadline = () => { signal.throwIfAborted(); if (Date.now() - started > 1800) throw new Error('Context inventory deadline exceeded; baseline retained.'); };
   const root = await realpath(repoRoot);
   const environment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0' };
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' };
+  // Read only effective ignore intent before isolating other global Git settings; config does not execute helpers.
+  const excludes = await runContextGit('git', ['config', '--path', '--get', 'core.excludesFile'],
+    { cwd: root, env: { ...environment, GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL }, encoding: 'buffer',
+      maxBuffer: 32000, timeout: 1800, signal }).catch(error => { if (error.code === 1) return null; throw error; });
+  const excludesArgs = excludes ? ['-c', 'core.excludesFile=' + new TextDecoder('utf-8', { fatal: true }).decode(excludes.stdout).replace(/\n$/, '')] : [];
   const git = async args => {
     checkDeadline();
     try {
-      const result = await runContextGit('git', ['-c', 'core.fsmonitor=false', ...args],
+      const result = await runContextGit('git', ['-c', 'core.fsmonitor=false', ...excludesArgs, ...args],
         { cwd: root, env: environment, encoding: 'buffer', maxBuffer: 1_000_000, timeout: Math.max(1, 1800 - (Date.now() - started)), signal });
       return new TextDecoder('utf-8', { fatal: true }).decode(result.stdout);
     } catch (error) { throw new Error('Context inventory Git failed; baseline retained.', { cause: { code: error.code ?? 'invalid-output' } }); }
@@ -149,14 +170,32 @@ export async function captureRepositorySnapshot(repoRoot, signal = AbortSignal.t
   // ponytail: submodules abstain; recursive raw child snapshots require a measured pilot need.
   if (index.split('\0').some(entry => entry.startsWith('160000 '))) throw new Error('Context inventory submodule unsupported; baseline retained.');
   const contents = []; const capturedFiles = []; const unreadablePaths = []; let totalBytes = 0;
+  const installation = await readContextInstallReceipt(root, signal);
   for (const path of inventory) {
     checkDeadline();
     const target = resolve(root, path); const local = relative(root, target);
     if (local === '..' || local.startsWith('../') || isAbsolute(local)) throw new Error('Context inventory path rejected; baseline retained.');
     const stat = await lstat(target).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     if (!stat) { contents.push([path, 'missing']); capturedFiles.push([target, null, false]); continue; }
+    if (installation && !index.includes('\t' + path + '\0') &&
+        (['.codex/hooks.json', '.codex/codex-context-policy.json', '.codex/codex-context-policy-install.json',
+          '.codex/codex-context-policy-coverage.json'].includes(path) ||
+        /^\.codex\/codex-context-promotion-(?:code_context|code_review_context|documentation_context)-(?:deterministic|hybrid)\.json$/.test(path))) {
+      // Keep private runtime out of automatic evidence; unignored reviews abstain, explicit reads stay available.
+      baseInventory.delete(path);
+      if (!explicitPaths.includes(path)) {
+        contents.push([path, 'private-context-runtime']); unreadablePaths.push(path); capturedFiles.push([target, stat, false]); continue;
+      }
+    }
+    if (path === '.agents/skills/codex-context-operations' && stat.isSymbolicLink() &&
+        !index.includes('\t' + path + '\0') && installation?.owned_skill?.path === target &&
+        installation.owned_skill.target === join(installation.source_root, 'skills/codex-context-operations') &&
+        await readlink(target) === installation.owned_skill.target) {
+      // Exempt only our untracked, receipt-owned runtime alias; tracked or foreign links remain evidence failures.
+      contents.push([path, 'owned-context-skill']); capturedFiles.push([target, stat, false]); continue;
+    }
     if (!stat.isFile() || stat.isSymbolicLink() || await realpath(target) !== target) {
-      unreadablePaths.push(path); contents.push([path, 'unreadable', stat.mtimeMs, stat.size]);
+      unreadablePaths.push(path); contents.push([path, 'unreadable', stat.mode, stat.mtimeMs, stat.size]);
       capturedFiles.push([target, stat, false]); continue;
     }
     let file;
@@ -176,7 +215,7 @@ export async function captureRepositorySnapshot(repoRoot, signal = AbortSignal.t
       if (before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.size !== after.size ||
           current.ino !== before.ino || current.dev !== before.dev || current.mtimeMs !== after.mtimeMs ||
           current.ctimeMs !== after.ctimeMs) throw new Error('Context inventory changed during read; baseline retained.');
-      contents.push([path, hash.digest('hex')]);
+      contents.push([path, hash.digest('hex'), before.mode]);
       capturedFiles.push([target, current, true]);
     } finally { await file?.close(); }
   }

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { captureContextTask, saveContextTask } from '../src/context-state.mjs';
+import { captureContextTask, saveContextTask, captureRepositorySnapshot } from '../src/context-state.mjs';
 import { selectCodeContext } from '../src/repository-context.mjs';
 import * as repositoryContext from '../src/repository-context.mjs';
 
@@ -20,6 +20,7 @@ test('protected_evidence_and_exact_pages', async () => {
   const root = await mkdtemp(join(temporaryRoot, 'protected-'));
   const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
   git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
   const files = {
     'src/report.mjs': "import { normalize } from './normalize.mjs';\nexport function buildReport(value) { return normalize(value); }\n",
     'src/normalize.mjs': 'export function normalize(value) { return String(value).trim(); }\n',
@@ -170,6 +171,7 @@ test('repository_changes_preserve_raw_stages_and_scope', async () => {
   const root = await mkdtemp(join(temporaryRoot, 'changes-'));
   const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
   git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
   await writeFile(join(root, 'change space\nñ.mjs'), 'export const value = 1;\n');
   await writeFile(join(root, 'deleted.mjs'), 'export const deleted = true;\n');
   git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: base changes']);
@@ -239,6 +241,16 @@ test('repository_changes_preserve_raw_stages_and_scope', async () => {
     state_dir: stateDir, session_id: state.session_id, byte_limit: 8000 });
   assert.equal(committedContext.status, 'ok', 'Commit-scoped context must come from the requested immutable target');
   assert.equal(committedContext.entries.find(entry => entry.path === 'change space\nñ.mjs').content, 'export const value = 3;\n');
+  const originalBlob = git(['rev-parse', head + ':change space\nñ.mjs']).toString().trim();
+  const replacement = execFileSync('git', ['hash-object', '-w', '--stdin'],
+    { cwd: root, env: gitEnvironment, input: 'export const value = 777;\n', encoding: 'utf8' }).trim();
+  git(['replace', originalBlob, replacement]);
+  const replaced = await selectCodeContext({ repo_root: root, request_hash: dirtyState.request_hash,
+    repo_revision: dirtyState.repo_revision, context_epoch: dirtyState.context_epoch, scope: { kind: 'range', base, head },
+    paths: ['change space\nñ.mjs'], symbols: [], family: 'code_review_context', exhaustive: true, byte_limit: 8000 });
+  assert.equal(replaced.status, 'ok', replaced.stderr);
+  assert.equal(replaced.entries.find(entry => entry.path === 'change space\nñ.mjs').content, 'export const value = 3;\n',
+    'Immutable target evidence must ignore repository replacement refs');
   const expandedRange = await repositoryContext.readContext({ repo_root: root, state_dir: stateDir,
     session_id: state.session_id, reference: committedContext.full_result, byte_limit: 8000 });
   assert.equal(expandedRange.status, 'ok', expandedRange.stderr);
@@ -254,4 +266,121 @@ test('repository_changes_preserve_raw_stages_and_scope', async () => {
     repo_revision: rangeState.repo_revision, context_epoch: rangeState.context_epoch,
     scope: { kind: 'range', base: '--output=unsafe', head }, byte_limit: 8000 });
   assert.equal(badRange.status, 'error'); assert.deepEqual(badRange.entries, []);
+});
+
+// Replaying a cached executable-mode change after chmod reverses it supplies obsolete review evidence.
+test('repository_change_expansion_rejects_executable_mode_changes', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'mode-'));
+  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
+  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
+  await writeFile(join(root, 'run.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: modes']);
+  await chmod(join(root, 'run.sh'), 0o755);
+  const state = await captureContextTask({ cwd: root, session_id: 'mode-session', turn_id: 'mode-turn',
+    hook_event_name: 'UserPromptSubmit', prompt: 'Review all changes.', permission_mode: 'read-only' }, null);
+  const stateDir = join(temporaryRoot, 'mode-state'); assert.equal(await saveContextTask(stateDir, state), true);
+  const changes = await repositoryContext.getRepositoryChanges({ repo_root: root, request_hash: state.request_hash,
+    repo_revision: state.repo_revision, context_epoch: state.context_epoch, scope: { kind: 'worktree' },
+    state_dir: stateDir, session_id: state.session_id, byte_limit: 8000 });
+  assert.equal(changes.status, 'ok', changes.stderr);
+  assert.ok(changes.entries.some(entry => entry.change === 'mode-changed'));
+  await chmod(join(root, 'run.sh'), 0o644);
+  const expanded = await repositoryContext.readContext({ repo_root: root, state_dir: stateDir,
+    session_id: state.session_id, reference: changes.full_result });
+  assert.equal(expanded.status, 'stale', 'Executable mode belongs to the raw repository revision');
+  assert.deepEqual(expanded.entries, []);
+  await chmod(join(root, 'run.sh'), 0o654);
+  const groupExecutable = await captureContextTask({ cwd: root, session_id: 'group-mode-session',
+    hook_event_name: 'UserPromptSubmit', prompt: 'Review all changes.', permission_mode: 'read-only' }, null);
+  const groupChanges = await repositoryContext.getRepositoryChanges({ repo_root: root, request_hash: groupExecutable.request_hash,
+    repo_revision: groupExecutable.repo_revision, context_epoch: groupExecutable.context_epoch, scope: { kind: 'worktree' }, byte_limit: 8000 });
+  assert.equal(groupChanges.status, 'ok', groupChanges.stderr);
+  assert.deepEqual(groupChanges.entries, [], 'Git executable mode represents owner execute, not group/other permissions');
+});
+
+// Missing objects must remain errors, without executing a configured lazy-fetch transport or writing objects.
+test('repository_object_reads_never_start_lazy_fetch', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'missing-object-'));
+  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
+  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
+  await writeFile(join(root, 'entry.mjs'), 'export const value = 1;\n');
+  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: local objects']);
+  const head = git(['rev-parse', 'HEAD']).toString().trim();
+  const sentinel = join(temporaryRoot, 'lazy-fetch-started'); const helper = join(temporaryRoot, 'fixture-transport');
+  await writeFile(helper, '#!/bin/sh\nprintf started > "' + sentinel + '"\nexit 7\n', { mode: 0o700 });
+  git(['config', 'remote.fixture.url', 'ext::' + helper]); git(['config', 'remote.fixture.promisor', 'true']);
+  git(['config', 'extensions.partialClone', 'fixture']); git(['config', 'protocol.ext.allow', 'always']);
+  git(['update-index', '--cacheinfo', '100644,' + '1'.repeat(40) + ',entry.mjs']);
+  const state = await captureContextTask({ cwd: root, session_id: 'missing-session', turn_id: 'missing-turn',
+    hook_event_name: 'UserPromptSubmit', prompt: 'Review all changes.', permission_mode: 'read-only' }, null);
+  const request = { repo_root: root, request_hash: state.request_hash, repo_revision: state.repo_revision,
+    context_epoch: state.context_epoch, byte_limit: 8000 };
+  assert.equal((await repositoryContext.getRepositoryChanges({ ...request, scope: { kind: 'worktree' } })).status, 'error');
+  assert.equal(await readFile(sentinel).then(() => true, error => error.code !== 'ENOENT'), false,
+    'Read-only context must not execute a repository transport');
+  assert.equal((await selectCodeContext({ ...request, scope: { kind: 'range', base: head, head: '2'.repeat(40) },
+    paths: ['entry.mjs'], symbols: [], family: 'code_context', exhaustive: true })).status, 'error');
+  assert.equal(await readFile(sentinel).then(() => true, error => error.code !== 'ENOENT'), false);
+});
+
+// One ordinary edit in a medium repository must not spend the shared deadline launching one Git process per file.
+test('repository_changes_batch_unchanged_objects_within_deadline', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'batch-'));
+  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
+  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
+  for (let i = 0; i < 200; i++) await writeFile(join(root, 'record-' + i + '.mjs'), 'export const value = ' + i + ';\n');
+  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: batch objects']);
+  await writeFile(join(root, 'record-0.mjs'), 'export const value = 999;\n');
+  const state = await captureContextTask({ cwd: root, session_id: 'batch-session', turn_id: 'batch-turn',
+    hook_event_name: 'UserPromptSubmit', prompt: 'Review all changes.', permission_mode: 'read-only' }, null);
+  const changes = await repositoryContext.getRepositoryChanges({ repo_root: root, request_hash: state.request_hash,
+    repo_revision: state.repo_revision, context_epoch: state.context_epoch, scope: { kind: 'worktree' }, byte_limit: 8000 });
+  assert.equal(changes.status, 'ok', changes.stderr);
+  assert.equal(changes.entries.length, 1); assert.equal(changes.entries[0].path, 'record-0.mjs');
+  assert.ok(changes.entries[0].content.includes('+export const value = 999;'));
+  const selected = await selectCodeContext({ repo_root: root, request_hash: state.request_hash,
+    repo_revision: state.repo_revision, context_epoch: state.context_epoch, scope: { kind: 'range',
+      base: state.repo_head, head: state.repo_head }, paths: ['record-0.mjs'], symbols: [], family: 'code_context',
+    exhaustive: true, byte_limit: 8000 });
+  assert.equal(selected.status, 'ok', selected.stderr);
+  assert.equal(selected.entries.find(entry => entry.path === 'record-0.mjs').content, 'export const value = 0;\n');
+  const toolDirectory = join(temporaryRoot, 'trash-inspector'); await mkdir(toolDirectory);
+  const observationPath = join(temporaryRoot, 'scratch-disposal.json');
+  const trashPath = execFileSync('which', ['trash'], { encoding: 'utf8' }).trim();
+  await writeFile(join(toolDirectory, 'trash'), '#!/usr/bin/env node\n' +
+    "const fs = require('node:fs'); const {spawnSync} = require('node:child_process'); const path = require('node:path');\n" +
+    'const directory = process.argv[2]; const sizes = ["before", "after"].map(name => { try { return fs.statSync(path.join(directory,name)).size; } catch { return 0; } });\n' +
+    'fs.writeFileSync(' + JSON.stringify(observationPath) + ', JSON.stringify(sizes));\n' +
+    'process.exit(spawnSync(' + JSON.stringify(trashPath) + ', process.argv.slice(2)).status ?? 1);\n', { mode: 0o700 });
+  const stateDir = join(temporaryRoot, 'batch-state'); assert.equal(await saveContextTask(stateDir, state), true);
+  const child = spawnSync(process.execPath, [fileURLToPath(new URL('../src/codex-context-policy.mjs', import.meta.url)), 'get_repository_changes'],
+    { input: JSON.stringify({ repo_root: root, state_dir: stateDir, session_id: state.session_id, scope: { kind: 'worktree' } }),
+      env: { ...gitEnvironment, PATH: toolDirectory + ':' + process.env.PATH }, encoding: 'utf8', timeout: 3000 });
+  assert.equal(child.status, 0, child.stderr);
+  assert.deepEqual(JSON.parse(await readFile(observationPath, 'utf8')), [0, 0],
+    'Trash must receive no retained raw repository scratch bytes');
+});
+
+// Global ignore intent must survive disabling unrelated Git configuration and external helpers.
+test('repository_inventory_preserves_effective_global_excludes', async () => {
+  const root = await mkdtemp(join(temporaryRoot, 'global-excludes-'));
+  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.excludesFile=/dev/null',
+    '-c', 'core.attributesFile=/dev/null', ...args], { cwd: root, env: gitEnvironment });
+  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
+  await writeFile(join(root, 'entry.mjs'), 'export const value = 1;\n');
+  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: excludes']);
+  await writeFile(join(root, 'ignored-private.md'), 'Synthetic ignored repository evidence.\n');
+  const ignorePath = join(temporaryRoot, 'global-ignore'); await writeFile(ignorePath, 'ignored-private.md\n');
+  const configPath = join(temporaryRoot, 'global-config'); await writeFile(configPath, '[core]\nexcludesFile = ' + ignorePath + '\n');
+  const prior = process.env.GIT_CONFIG_GLOBAL;
+  try {
+    process.env.GIT_CONFIG_GLOBAL = configPath;
+    const snapshot = await captureRepositorySnapshot(root);
+    assert.equal(snapshot.inventory.includes('ignored-private.md'), false, 'Automatic inventory must respect effective global ignores');
+    const explicit = await captureRepositorySnapshot(root, undefined, ['ignored-private.md']);
+    assert.ok(explicit.files.some(file => file.path === 'ignored-private.md'), 'Explicit ignored evidence remains available');
+  } finally { if (prior === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = prior; }
 });
