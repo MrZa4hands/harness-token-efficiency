@@ -6,6 +6,14 @@ read_when: Before assessing the capabilities of the current pilot phase.
 
 ## Unreleased
 
+### Phase 2 — Exact Expandable Context
+
+- Read protected source, raw staged/worktree or immutable range changes, and complete private continuations through three native operations. Preserve BOM/CRLF, binary bytes, hashes, oversized hunks and original failures. Partial literal-reference coverage keeps ordinary exploration available. See [operations](docs/usage.md).
+- Prepare code, whole-worktree review and documentation evidence automatically before generation, within two seconds and 6000 UTF-8 bytes. Shadow keeps proposals private; uncertain/narrowed scope retains baseline. Installed guidance and private audit metadata never replace native instruction or permission controls.
+- Recompute context-family qualification from complete actual paired corpus/quality/usage/model/version evidence. Separate deterministic/hybrid records keep independent local eligibility; unknown usage, unsupported clients, mixed provider models or worse quality block promotion.
+- Verify 101 passing tests and both required reviews, correcting every confirmed finding through failing-first regressions. A trusted restricted native experiment and corrected-source smoke confirm exact delivery; one historical paired case provides no general savings or semantic value. All families remain observational and Jev disabled. Thanks to Roe for native trust verification. See [phase 2 validation](docs/validation/phase-2.md).
+- Withdraw the temporary global experiment while preserving foreign registrations. Logical result expiry is enforced; physical result cleanup and delivery reuse follow phase 3. Retain source worktrees while active hook/skill references or private evidence require them.
+
 ### Phase 1 — Isolated Shadow Decisions and Jev Setup
 
 - Observe protected paths, symbols and explicit coverage in isolated private task state. Conflicting writers, missing history and configuration changes retain baseline; raw snapshot capture avoids Git conversion filters and rejects stale, external or blocking evidence. See [state and recovery](docs/usage.md).

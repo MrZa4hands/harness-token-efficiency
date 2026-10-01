@@ -13,7 +13,7 @@ read_when: Before implementing evidence selection, assessing phase 2, or resumin
 - Feature branch: `feat/codex-token-efficiency-phase-2`.
 - New worktree: `/Users/mrz/Documents/Roe/tools/LifeOS/codex-token-efficiency-worktrees/phase-2`.
 - Delivery remote: `https://github.com/MrZa4hands/harness-token-efficiency.git`.
-- PR base: `develop`; phase 2 PR not opened yet.
+- PR base: `develop`; PR #3, source/corrections committed and pushed.
 - Execution: native inline under the [authorized plan](../plans/2026-09-30-codex-token-efficiency.md), task 2A then 2B, TDD and the prescribed two-review lifecycle.
 - Starting Git status clean; develop/origin divergence `0 0`; baseline gate 76/76 with no failures/skips, plus syntax/JSON/corpus/document links/source scope.
 - Runtime: Node `v26.9.0`, existing Git/rg/RTK and standard library; no package/dependency installation.
@@ -22,7 +22,7 @@ read_when: Before implementing evidence selection, assessing phase 2, or resumin
 
 Both phase 1 reviews, all confirmed corrections and required release documentation completed before merge. Phase 1 remains observational; actual semantic calibration accepted no proposal and Jev stays disabled. No promotion or token-saving result is claimed. Existing phase-0/phase-1 native registrations still reference their source worktrees, so those worktrees/branches remain preserved.
 
-Phase 2 adds exact protected evidence and progressive expansion before an actual restricted paired experiment. Automatic preparation, comparison and restricted native-trial registration are implemented and tested. Native trust, delivery and one paired case are verified; both reviews, release documentation and merge remain pending. Insufficient quality/usage/latency evidence keeps every family in shadow. Tests cannot establish native delivery or savings.
+Phase 2 adds exact protected evidence and progressive expansion before an actual restricted paired experiment. Automatic preparation, comparison and restricted native-trial registration are implemented and tested. Both prescribed review stages completed; every confirmed finding was corrected through TDD. Current-source native delivery is verified separately from the historical paired case. Release documentation and final-head checks precede merge. Insufficient quality/usage/latency evidence keeps every family in shadow. Tests cannot establish native delivery or savings.
 
 ## Task 2A Execution Evidence
 
@@ -44,7 +44,7 @@ Meaningful failing-test-first cycles established automatic shadow preparation, c
 
 `comparePilotRuns` requires all sixty frozen held-out identities in three variants, complete provider/task counters, verified quality/evidence/check completion, paired model/effort/source versions, recorded cache/order controls and at least ten pairs per family. A family needs at least 20% median paired total-token reduction, nonincreasing median duration and at most 1000 ms p95 duration increase. Hybrid additionally needs incremental token value and no extra latency over deterministic. The manager recomputes original run data, persists private version-bound reports atomically and preserves the global mode cap. The hook rechecks current configuration, native identity and report data before emitting at most 6000 UTF-8 bytes/approximately 2000 tokens. No actual family is qualified.
 
-The evaluator's `trial --tasks <corpus> --task <id> --variant <variant> --repo <root>` reads an expiring private `.codex/codex-context-trial.json` admission. An optional `--admission <private-file>` keeps the native command stable while each declared experimental run changes; this avoids repeated native definitions and does not broaden admission. Both forms validate the exact versioned corpus, prompt, canonical root, original HEAD, current raw revision and native model/effort/client identity. They use the production preparation functions, preserve billing observations and never install or change production mode. Emission is recorded separately from verified delivery; an audit-write failure discards experimental output.
+The evaluator's `trial --tasks <corpus> --task <id> --variant <variant> --repo <root>` reads an expiring private `.codex/codex-context-trial.json` admission. An optional `--admission <private-file>` keeps the native command stable while each declared experimental run changes; this avoids repeated native definitions and does not broaden admission. Both forms validate the exact versioned corpus, prompt, canonical root, original HEAD, current raw revision and native model/effort/client identity. They use the production preparation functions, preserve billing observations and never install or change production mode. Current metadata records attempted output with emitted/delivery flags false; a transcript proves delivery independently. Failed or deadline-expired audit writes discard output; preparation timing explicitly excludes the immutable audit's own write.
 
 The automatic review recipe currently supports whole-worktree requests. Explicitly narrowed or Git-range review requests conservatively abstain rather than injecting unrelated stages. The explicit repository operation already supports verified immutable commit scopes; automatic prompt-to-scope parsing is not inferred. A regression caught an unstaged hunk being prepared for a staged-only request and verifies baseline fallback.
 
@@ -68,4 +68,35 @@ The paired native `documentation_01` integration completed in deterministic, bas
 
 The hybrid native transcript also contains its complete 3,779-byte bundle with an exact matching SHA-256 before generation. Baseline contains no experimental evidence. This one case is insufficient: deterministic is slower than baseline, hybrid has no incremental token value, and the report CLI correctly refuses promotion without all sixty held-out tasks in three variants. Order/cache effects and incidental model tool choices preclude a general saving claim. The broader repeated evaluation belongs to phase 4. The temporary global entry and receipt were withdrawn successfully after the experiment; foreign registrations remain intact.
 
-Latest completed source gate: 86 tests, zero failures/skips, plus syntax/JSON/corpus/document links/source scope. Task 2B implementation and the restricted paired integration are verified; no family is promoted. No first/second phase-2 PR review has started; no documentation-release audit or merge is claimed.
+Pre-review Task 2B source gate: 86 tests, zero failures/skips, plus syntax/JSON/corpus/document links/source scope. Those native paired measurements used a historical source fingerprint; subsequent corrections invalidate them as current promotion proof. No family is promoted.
+
+## Both Required Reviews and Corrections
+
+First exact `$review` completed three internal full-range snapshots with specialist testing/performance, maintainability, security/simplification, native adversarial and Red Team coverage, plus both actual external Claude opus 5.5 review forms. All agents/providers completed; full outputs and actual usage remain private. Initial fourteen, next eleven and final four confirmed instances produced 23 distinct fixed actions. Coverage is complete and unresolved real findings are zero; convergence remains false at the three-pass limit. The exact invoked skill supplied no applicable quality-score formula, so the score remains unavailable. No fourth first-stage pass was run.
+
+Meaningful RED→GREEN corrections preserve raw permission/replacement/object/attribute/parent-configuration boundaries; batch immutable reads; purge fresh scratch bytes while preserving cleanup cancellation/errors; retain effective ignore intent and isolate ordinary fixtures; protect receipt-owned runtime and skill contents without masking tracked/foreign/explicit evidence; maintain durable capture after optional timeout; require complete affirmative review scope and dependency seeds from all change pages; strictly bind proof booleans, actual provider models, independent deterministic reports and requested-family identity. Production audits record attempts without claiming delivery. The final first-stage gate passed 97/97 and poisoned-ignore regressions passed.
+
+Fresh second `$superpowers:requesting-code-review` independently examined the full range `3ff847b64c3baf22e220e0f1cbcb8c1c9b106ecf..753bcf5a206a07b4d46bb18b9db85da8d3ffdc5f`, all 24 changed files and related callers/assertions. Three Important findings and one Minor diagnostic finding were confirmed and corrected in `e5ded1ba92ec846ccf3b4959a28f5979dfbb6428`:
+
+- BOM content/path decoding preserves exact worktree/range/whole-unit bytes and SHA-256.
+- Unsupported native clients cannot acquire verified source identity or promotion.
+- Delayed trial audit writes use the shared signal and post-write deadline check; expired context is discarded and timing exclusions are explicit.
+- Invalid UTF-8 Git/rg diagnostics retain original exit codes and labelled exact base64 bytes; cleanup shares the same diagnostic boundary.
+
+Each owner first failed for the reproduced behavior, then passed. The full corrected source gate passes **101/101**, zero failures/skips, with syntax/JSON/corpus/document links/source scope and clean whitespace. Declined review items are the explicit phase-3/4 work, conservative partial coverage/native admission and unknown pricing; none authorizes activation. Both stages are complete. No renewed reviewer or independent documentation review follows; required `document-release` performs factual audit and validation under the project override.
+
+## Corrected-Source Native Smoke
+
+Normal reinstallation restored the exact previously trusted temporary global definition; read-only native discovery reported trusted. No trust storage, model/effort setting or bypass flag was changed. Two additional runs conservatively abstained because actual native effort was `high` while their admissions expected the older experiment's `xhigh`; their durations, source versions and complete observed usage remain private evidence, excluded from paired promotion rather than discarded.
+
+A fresh admission used the actual observed `gpt-6.1-sol`/`high` without overriding Codex. Corrected source `e5ded1b` and all trial/shared module hashes were frozen separately; the production policy fingerprint was `61ec05def1379e8614232f0b23e29e62160c9581b9fe73232fa8257f1b4e9e6b`. Native engine `0.159.2` delivered **3778 exact UTF-8 bytes/seven entries before generation**, with matching bundle and per-entry SHA-256. Preparation before audit took about 1388 ms; full native task wall time was about 55.96 seconds.
+
+The answer preserved the frozen label assertion; all required evidence was inspected and `npm test` passed 3/3 through ordinary tools. Nine native commands include one malformed explicit context request and its ordinary fallback; their costs remain included. Six native response-usage records sum exactly to final transcript/CLI counters: 209,953 input (186,752 cached), 1,363 output including 151 reasoning, 211,316 total. Five native custom exec calls were observed, no worker inference; the immutable decision confirms zero Jev requests. This unpaired smoke establishes delivery/quality integration, not incremental savings or family qualification.
+
+The temporary global entry and receipt were removed successfully after this final smoke, preserving foreign handlers. Private fixture/state/source evidence remains retained; production registrations are still observational and the shared credential is unchanged. Full sixty-task/repeated evaluation remains phase 4.
+
+## Delivery and Cleanup
+
+PR #3 targets develop from the verified starting SHA. Both required reviews and all confirmed corrections are complete; release documentation precedes final-head gate/check/protection inspection and permitted merge. Absent configured CI is recorded as absent, never green. No operation is promoted.
+
+Keep phase-0/phase-1 worktrees while their native definitions refer to them. Phase-2 temporary global registration is withdrawn, but private trial fixture skill links and ignored execution/review evidence still need preservation before worktree removal. No forced removal/deletion or silent source relocation is permitted. Phase 3 starts only from freshly verified merged develop in its own new feature/worktree.

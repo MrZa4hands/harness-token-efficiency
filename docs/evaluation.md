@@ -4,7 +4,7 @@ read_when: Before collecting usage, materializing pilot cases, or making savings
 
 # Evaluation
 
-Phases 0–1 supply measurement indicators, synthetic cases, immutable Jev billing aggregation and actual shadow calibration. There is no baseline/deterministic/hybrid task comparison, trial hook, promotion or measured token savings. Those belong to later phases.
+Phases 0–2 supply measurement indicators, synthetic cases, shadow calibration, restricted native trials and recomputed context promotion criteria. A single historical paired task and current-source smoke establish integration; the full repeated evaluation remains phase 4. No family is promoted and no general saving is claimed.
 
 ## Session Usage
 
@@ -67,6 +67,26 @@ Native shadow smoke confirms one installed trusted rule proposal with no tools, 
 rtk proxy node scripts/verify-context-policy.mjs
 ```
 
-The current gate passes 76 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
+The current gate passes 101 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
 
 Native observations are recorded separately in [phase 0 validation](validation/phase-0.md) and [phase 1 validation](validation/phase-1.md). Direct App tools, direct command tools, MCP, compaction, and resume retain their stated unverified status. Remaining probes must be withdrawn before optimization-baseline runs. Later paired experiments must preserve model, effort, prompts, starting state, order/cache controls, full evidence/check outcomes, all providers/workers, and expansion/correction costs. Unknown usage and failed tasks cannot be silently discarded to manufacture savings.
+
+## Paired Context Report
+
+`report --runs <private-jsonl> --tasks evaluation/tasks.jsonl` recomputes all original rows; it never accepts a supplied promotion summary as proof. Each row needs unique `run_id`, frozen `task_id`, `split:held_out`, `family`, `variant`, exact `corpus_hash`, `prompt_hash`, `initial_revision`, `fixture_hash`, finite complete-task `duration_ms`, `order_index:0|1|2`, and `cache_control:recorded`.
+
+`versions` binds supported `client_version`, `main_model`, `reasoning_effort`, `policy_hash`; hybrid also binds `questions_hash` and actual `jev_model`. Strict booleans `native_execution_verified` and `task_coverage_verified` must both be true. `codex_usage` requires `available:true` and all six counters above. `jev_usage` requires `available:true`, `input_tokens`, `output_tokens`, `total_tokens`, `requests`, and `models`; zero requests require zero tokens and an empty model list. Baseline/deterministic cannot contain Jev requests. Every queried hybrid model must equal its actual pinned fingerprint.
+
+`quality` requires `correct:true`, `evidence_complete:true`, `checks_complete:true`, `critical_regression:false`. These are independently assessed facts, not values inferred from classifier agreement or filled in after an unobserved session. Usage must include workers, all providers, corrections and expansion costs; unknown coverage remains unknown and blocks promotion.
+
+All sixty held-out tasks need all three actual variants, preserving paired prompt/state/model/effort and distinct order positions. Each family needs at least ten pairs, no failed required quality evidence, median total-token reduction of at least 20%, nonincreasing median duration, and p95 paired duration increase at most 1000 ms. Hybrid must additionally save tokens over the same deterministic family without extra individual latency. Repeated experiments require separately identified cohorts; repeat aggregation/dispersion is a phase-4 extension, not fabricated duplicate rows.
+
+The private report contains `report_version:1`, `corpus_hash`, original `runs`, family results, `promotions`, and `limitations`. Manager `promote` rechecks current owned installation, native coverage, actual family model/effort and source fingerprints before storing separate deterministic/hybrid reports. A qualifying report cannot exceed the current global mode cap; unknown versions and mixed actual provider models abstain. See [operational commands](usage.md).
+
+## Native Integration Limits
+
+The temporary native trial is restricted to the exact public synthetic corpus and a private admission expiring within 24 hours. Native model/session/active-turn metadata supplies omitted version/effort only when independently validated; configured defaults cannot substitute. Its immutable observation measures preparation before its own audit; the actual native task wall clock includes audit/persistence and all ordinary operations. Metadata records attempted output, not verified delivery. The transcript must prove exact matching developer evidence before generation.
+
+The historical `documentation_01` paired case used unchanged gpt-6.1-sol/xhigh and identical fixture/source in deterministic, baseline, hybrid order, with warm caches. All variants preserved the annotated result and required evidence; declared tests passed. Zero Jev queries mean this hybrid case measures no semantic value. Deterministic was slower than baseline, hybrid had no incremental token advantage over deterministic, and the incomplete sixty-task report refused promotion. Later source corrections invalidate that historical fingerprint as current promotion proof.
+
+Current-source smoke is separately bound to corrected modules and the actual observed native model/effort, without overrides. Failed/abstained discovery and mismatched-effort attempts remain recorded, with their usage included rather than silently discarded. They are not favorable paired comparisons. See [phase 2 validation](validation/phase-2.md) for exact scope and results. Subscription pricing and incomplete historical billing remain unknown; no cost estimate or saving is invented.
