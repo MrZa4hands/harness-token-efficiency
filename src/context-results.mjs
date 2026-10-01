@@ -78,6 +78,23 @@ async function currentResultTask(request, root, bundle) {
   return task;
 }
 
+async function readPrivateContextResult(path, reference, signal) {
+  signal.throwIfAborted(); let file; let text;
+  try {
+    if (await realpath(path) !== path) throw new Error('Context result file rejected.');
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const before = await file.stat();
+    if (!before.isFile() || (before.mode & 0o077) !== 0 || before.size > 70_000_000 ||
+        before.uid !== process.getuid()) throw new Error('Context result file rejected.');
+    const bytes = await file.readFile({ signal }); const after = await file.stat(); const current = await lstat(path);
+    if (['ino', 'dev', 'size', 'mtimeMs', 'ctimeMs', 'mode'].some(key => before[key] !== after[key] || after[key] !== current[key]) ||
+        await realpath(path) !== path) throw new Error('Context result file changed.');
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } finally { await file?.close(); }
+  if (resultHash(text) !== reference) throw new Error('Context result content hash rejected.');
+  signal.throwIfAborted(); return text;
+}
+
 /** Persist exact context results under the current private repository/session state, then return a whole-unit page.
  * @param {object} bundle
  * @param {{repo_root:string,state_dir?:string,session_id?:string,byte_limit?:number,cursor?:string}} request
@@ -100,9 +117,9 @@ export async function storeContextResult(bundle, request) {
   try { file = await open(path, 'wx', 0o600); await file.writeFile(text); await file.sync(); }
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
-    const existing = await readContext({ ...request, reference });
-    if (existing.full_result !== reference) throw new Error('Context result existing artifact rejected.');
-    return existing;
+    // The producer already captured repository evidence; validate existing exact bytes without a second repository read.
+    if (await readPrivateContextResult(path, reference, request.signal ?? AbortSignal.timeout(2000)) !== text)
+      throw new Error('Context result existing artifact rejected.');
   }
   finally { await file?.close(); }
   return pageContextResult(bundle, reference, request.cursor, request.byte_limit ?? 6000);
@@ -120,19 +137,7 @@ export async function readContext(request) {
     signal.throwIfAborted(); const root = await realpath(request.repo_root);
     // Validate private directories and current task before touching an artifact path.
     if (!await readContextTask(request.state_dir, root, request.session_id)) throw new Error('Context result session unavailable.');
-    const path = resultPath(request, root, request.reference); let file; let text;
-    try {
-      if (await realpath(path) !== path) throw new Error('Context result file rejected.');
-      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-      const before = await file.stat();
-      if (!before.isFile() || (before.mode & 0o077) !== 0 || before.size > 70_000_000 ||
-          before.uid !== process.getuid()) throw new Error('Context result file rejected.');
-      const bytes = await file.readFile({ signal }); const after = await file.stat(); const current = await lstat(path);
-      if (['ino', 'dev', 'size', 'mtimeMs', 'ctimeMs', 'mode'].some(key => before[key] !== after[key] || after[key] !== current[key]) ||
-          await realpath(path) !== path) throw new Error('Context result file changed.');
-      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } finally { await file?.close(); }
-    if (resultHash(text) !== request.reference) throw new Error('Context result content hash rejected.');
+    const text = await readPrivateContextResult(resultPath(request, root, request.reference), request.reference, signal);
     const artifact = JSON.parse(text); const bundle = artifact.bundle;
     if (artifact.schema_version !== 2 || artifact.repo_root !== root || artifact.session_id !== request.session_id ||
         !Number.isFinite(Date.parse(artifact.created_at)) || Date.parse(artifact.created_at) < Date.now() - 7 * 86400000 ||
