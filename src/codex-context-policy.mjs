@@ -1,6 +1,8 @@
 import { readFile, realpath } from 'node:fs/promises';
 import { join, relative, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
 
 /** @typedef {{mode:'off'|'shadow'|'enforce',jev_enabled:boolean,operations:Record<string,'off'|'shadow'|'enforce'>}} ContextPolicyConfig */
 
@@ -32,7 +34,26 @@ export async function handleCodexHook(input) {
       typeof input.hook_event_name !== 'string') return unchanged;
   const config = await readContextPolicyConfig(input.cwd);
   if (config.mode === 'off') return unchanged;
-  // Phase 0 establishes compatibility only; no optimizer operation is enabled.
+  if (input.hook_event_name !== 'UserPromptSubmit' || typeof input.prompt !== 'string') return unchanged;
+  const signal = AbortSignal.timeout(2000);
+  try {
+    const { readContextTask, captureContextTask, saveContextTask, resolveContextFacts,
+      resolveContextDecision, recordContextDecision } = await import('./context-state.mjs');
+    const stateDir = join(homedir(), '.codex/codex-context-policy');
+    const previous = await readContextTask(stateDir, input.cwd, input.session_id);
+    const versions = { client_version: input.client_version ?? 'unverified', jev_model: null, questions_hash: null,
+      policy_hash: createHash('sha256').update(JSON.stringify(config)).digest('hex') };
+    const state = await captureContextTask({ ...input, signal, versions }, previous);
+    const decision = resolveContextDecision(state, resolveContextFacts(state), null);
+    signal.throwIfAborted();
+    if (!await saveContextTask(stateDir, state)) return { ...unchanged, stderr: 'Context task state conflict; baseline retained.\n' };
+    signal.throwIfAborted();
+    await recordContextDecision(stateDir, state, decision);
+  } catch (error) {
+    const reason = /^Context [A-Za-z .;-]+$/.test(error.message) ? error.message : 'Context observation failed; baseline retained.';
+    return { ...unchanged, stderr: reason + '\n' };
+  }
+  // Phase 1 observes decisions only; enforce also remains inert until measured promotion.
   return unchanged;
 }
 

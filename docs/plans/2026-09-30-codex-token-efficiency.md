@@ -157,14 +157,14 @@ Branch `feat/codex-token-efficiency-phase-1`. Deliver isolated task state, minim
 
 **Interfaces:** Consume 0A/shared objects. Produce `captureContextTask(input: CodexHookInput, previous: TaskState|null): Promise<TaskState>`; `saveContextTask(stateDir: string, state: TaskState): Promise<boolean>`; `resolveContextDecision(state: TaskState, facts: object, jevResponse: object|null): DecisionRecord`. Facts: `{explicit_paths,literal_symbols,change_scope,exhaustive,known_operation,inventory_hash}`.
 
-- [ ] **RED: `state_isolation_and_continuity`.** Parallel repositories/sessions remain separate; overlapping writers do not erase constraints. Uncommitted edit and new untracked file change revision. Known “hazlo” continuation preserves objective/exhaustiveness; uncertain continuation is baseline. Permissions/corpus changes invalidate reuse; unknown child identity cannot alter parent state.
+- [x] **RED: `state_isolation_and_continuity`.** Parallel repositories/sessions remain separate; overlapping writers do not erase constraints. Uncommitted edit and new untracked file change revision. Known “hazlo” continuation preserves objective/exhaustiveness; uncertain continuation is baseline. Permissions/corpus changes invalidate reuse; unknown child identity cannot alter parent state.
   ```js
   assert.notEqual(beforeEdit.repo_revision, afterEdit.repo_revision);
   assert.deepEqual(followup.protected_requirements, previous.protected_requirements);
   assert.equal(unknownFollowupDecision.action, 'baseline');
   ```
-- [ ] **Observe RED:** `rtk proxy node --test --test-name-pattern='state_isolation_and_continuity' tests/context-state.test.mjs` → isolation/revision/continuity assertion failure.
-- [ ] **Implement:** hash real repository/session identity below `~/.codex/codex-context-policy/`; directories 0700, files 0600, atomic replacement, exclusive short session lock. Conflict/corruption abstains without waiting; immutable independent decision files. Refresh inventory each turn; SHA-256 relevant content, no external symlink traversal. Expire only owned state/logs older than seven days. Recognize explicit paths/symbols/scope, never difficulty from message length. Shadow stores metadata/hashes and `applied:false`, no injection/rewrite.
+- [x] **Observe RED:** `rtk proxy node --test --test-name-pattern='state_isolation_and_continuity' tests/context-state.test.mjs` → isolation/revision/continuity assertion failure.
+- [x] **Implement:** hash real repository/session identity below `~/.codex/codex-context-policy/`; directories 0700, files 0600, atomic replacement, exclusive short session lock. Conflict/corruption abstains without waiting; immutable independent decision files. Refresh inventory each turn; SHA-256 relevant content, no external symlink traversal. Expire only owned state/logs older than seven days. Recognize explicit paths/symbols/scope, never difficulty from message length. Shadow stores metadata/hashes and `applied:false`, no injection/rewrite.
 - [ ] **GREEN:** tests/gate PASS. Exercise two real sessions and config changes between invocations; inspect sanitized telemetry and minimal private recent-request state. Inventory errors preserve diagnostics, never become empty results.
 - [ ] **Commit:** `feat: track isolated context state and deterministic shadow decisions`; body records isolation, invalidation, and tested continuity.
 
