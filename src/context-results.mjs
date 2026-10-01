@@ -8,6 +8,22 @@ const resultHash = text => createHash('sha256').update(text).digest('hex');
 const resultPath = (request, root, reference) => join(resolve(request.state_dir), resultHash(root),
   resultHash(request.session_id), 'result-' + reference + '.json');
 const responseBytes = response => Buffer.byteLength(JSON.stringify(response));
+const resultTaskBinding = task => resultHash(JSON.stringify(Object.fromEntries([
+  'session_id', 'turn_id', 'request_hash', 'context_epoch', 'repo_revision', 'inventory_hash',
+  'corpus_hash', 'permissions_hash', 'versions', 'expected_jev_model', 'protected_requirements',
+].map(key => [key, task[key]]))));
+
+/** Reuse delivered context only with explicit current availability; native preparation never supplies a receipt. */
+export function reuseContextDelivery(bundle, receipt, state) {
+  const resend = { action: 'prefetch', reference: null };
+  if (!bundle || bundle.status !== 'ok' || !/^[a-f0-9]{64}$/.test(bundle.full_result) || !receipt || !state ||
+      receipt.delivery_confirmed !== true || state.context_availability !== 'confirmed' || state.history_gap ||
+      !['new', 'known'].includes(state.continuity) || receipt.bundle_hash !== resultHash(JSON.stringify(bundle))) return resend;
+  const keys = ['session_id', 'turn_id', 'context_epoch', 'request_hash', 'repo_revision', 'corpus_hash', 'permissions_hash'];
+  if (keys.some(key => typeof state[key] !== 'string' || !state[key] || receipt[key] !== state[key]) ||
+      !state.versions || JSON.stringify(receipt.versions) !== JSON.stringify(state.versions)) return resend;
+  return { action: 'reuse', reference: bundle.full_result };
+}
 
 function contextResultError(request, error) {
   return { status: error.message === 'Repository context revision changed.' ? 'stale' : 'error',
@@ -74,14 +90,20 @@ export async function storeContextResult(bundle, request) {
   }
   if (typeof request.state_dir !== 'string' || typeof request.session_id !== 'string') throw new Error('Context result identity rejected.');
   const root = await realpath(request.repo_root);
-  await currentResultTask(request, root, bundle);
-  const artifact = { schema_version: 1, repo_root: root, session_id: request.session_id,
-    created_at: new Date().toISOString(), bundle };
+  const task = await currentResultTask(request, root, bundle);
+  const artifact = { schema_version: 2, repo_root: root, session_id: request.session_id,
+    created_at: task.updated_at, binding_hash: resultTaskBinding(task), bundle };
   const text = JSON.stringify(artifact);
   if (Buffer.byteLength(text) > 70_000_000) throw new Error('Context result storage limit exceeded.');
   const reference = resultHash(text); const path = resultPath(request, root, reference);
   let file;
   try { file = await open(path, 'wx', 0o600); await file.writeFile(text); await file.sync(); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    const existing = await readContext({ ...request, reference });
+    if (existing.status !== 'ok') throw new Error('Context result existing artifact rejected.');
+    return existing;
+  }
   finally { await file?.close(); }
   return pageContextResult(bundle, reference, request.cursor, request.byte_limit ?? 6000);
 }
@@ -112,7 +134,7 @@ export async function readContext(request) {
     } finally { await file?.close(); }
     if (resultHash(text) !== request.reference) throw new Error('Context result content hash rejected.');
     const artifact = JSON.parse(text); const bundle = artifact.bundle;
-    if (artifact.schema_version !== 1 || artifact.repo_root !== root || artifact.session_id !== request.session_id ||
+    if (artifact.schema_version !== 2 || artifact.repo_root !== root || artifact.session_id !== request.session_id ||
         !Number.isFinite(Date.parse(artifact.created_at)) || Date.parse(artifact.created_at) < Date.now() - 7 * 86400000 ||
         Date.parse(artifact.created_at) > Date.now() || !bundle || bundle.status !== 'ok' || !Array.isArray(bundle.entries))
       throw new Error('Context result provenance rejected.');
@@ -123,7 +145,9 @@ export async function readContext(request) {
       ? (entry.source_sha256 !== null && currentHashes.get(entry.path) !== entry.source_sha256)
       : entry.source !== 'git-blob' && currentHashes.get(entry.path) !== entry.sha256))
       throw new Error('Repository context revision changed.');
-    await currentResultTask(request, root, bundle); signal.throwIfAborted();
+    const task = await currentResultTask(request, root, bundle);
+    if (artifact.binding_hash !== resultTaskBinding(task)) throw new Error('Context result freshness binding rejected.');
+    signal.throwIfAborted();
     return pageContextResult(bundle, request.reference, request.cursor, request.byte_limit ?? 8000);
   } catch (error) {
     return contextResultError(request, Object.assign(new Error(error instanceof SyntaxError ? 'Context result malformed private data rejected.'

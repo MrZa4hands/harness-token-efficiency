@@ -50,13 +50,13 @@ function validateContextState(state) {
   return state;
 }
 
-async function readPrivateContextFile(path) {
+async function readPrivateContextFile(path, byteLimit = 1_000_000, signal) {
   let file;
   try {
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const stat = await file.stat();
-    if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.size > 1_000_000) throw new Error('Unsafe private context file');
-    return await file.readFile('utf8');
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid() || stat.size > byteLimit) throw new Error('Unsafe private context file');
+    return await file.readFile({ encoding: 'utf8', signal });
   } catch (error) { if (error.code === 'ENOENT') return null; throw new Error('Context task state rejected; baseline retained.'); }
   finally { await file?.close(); }
 }
@@ -391,10 +391,19 @@ export async function recordContextDecision(stateDir, state, decision, signal) {
     for await (const entry of await opendir(directory)) {
       if (cleanupSignal.aborted) break;
       const name = entry.name;
-      if (!/^decision-[a-f0-9-]{36}\.json$/.test(name)) continue;
+      const result = /^result-([a-f0-9]{64})\.json$/.exec(name);
+      if (!result && !/^decision-[a-f0-9-]{36}\.json$/.test(name)) continue;
       const path = join(directory, name);
-      let old; try { old = JSON.parse(await readPrivateContextFile(path)); } catch { continue; }
+      let old; let text;
+      try { text = await readPrivateContextFile(path, result ? 70_000_000 : 1_000_000, cleanupSignal); old = JSON.parse(text); } catch { continue; }
       if (cleanupSignal.aborted) break;
+      if (result) {
+        if ([1, 2].includes(old?.schema_version) && contextHash(text) === result[1] &&
+            contextHash(old.repo_root) === metadata.repo_hash && contextHash(old.session_id) === sessionHash &&
+            Date.parse(old.created_at) < Date.now() - 7 * 86400000)
+          await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
+        continue;
+      }
       if (old && old.schema_version === 1 && old.session_hash === sessionHash && old.repo_hash === metadata.repo_hash &&
           Date.parse(old.updated_at) < Date.now() - 7 * 86400000) await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
     }
