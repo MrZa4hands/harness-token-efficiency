@@ -1,6 +1,6 @@
 ---
 date: 2026-09-30
-status: awaiting-review
+status: implementation-in-progress
 summary: Especificación de un piloto independiente de LifeOS para automatizar decisiones de contexto y herramientas en Codex mediante reglas y Jev, conservando la interfaz actual.
 read_when: Antes de preparar el plan por fases o implementar automatización para reducir tokens en el harness de Codex.
 analyzed_commit: 5e2f2e8
@@ -9,7 +9,7 @@ codex_cli_version: 0.159.2
 
 # Especificación: decisiones automáticas para reducir tokens en Codex
 
-Repository update (2026-10-01): `codex-token-efficiency/` is now an independent Git repository. Implementation paths below are relative to its root; the former parent repository's Git metadata was moved to Trash. A delivery remote and the intended `develop` branch still need to be established before implementation.
+Repository update (2026-10-02): `codex-token-efficiency/` is an independent Git repository with its authorized delivery remote and `develop` branch. Phases 0–1 merged; phase 2 is implemented and reviewed in PR #3, with final documentation/checks preceding merge. Paths below are relative to its root; the former parent repository's Git metadata was moved to Trash. This approved design remains the target; [usage](usage.md) and [phase validation](validation/phase-2.md) describe actual current capabilities and limits.
 
 ## 1. Decisión y objetivo
 
@@ -17,7 +17,7 @@ Construir una automatización pequeña, independiente de LifeOS: hooks nativos d
 
 El objetivo es reducir tokens y tiempo por tarea terminada correctamente, trasladando decisiones repetitivas fuera del modelo conversacional. El piloto conserva su modelo y esfuerzo; así podremos distinguir el ahorro por contexto y operaciones del efecto de cambiar de modelo.
 
-Esta es la especificación resultante del brainstorming. La [investigación inicial](codex-token-efficiency-proposal.md) contiene las fuentes y el análisis del checkout. Este documento sustituye sus decisiones sobre ubicación de la implementación, orden de fases y momento de incorporar Jev. Todavía no existe implementación ni ahorro medido.
+This approved specification records the brainstorming design. The [initial research](codex-token-efficiency-proposal.md) contains source analysis. This document supersedes its implementation-location, phase-order and Jev-timing decisions. Implementation is in progress; limited native integration has been measured, but no family is promoted and no general token saving is claimed.
 
 Todo el código, pruebas y documentación del proyecto se mantiene en `codex-token-efficiency/`. El [AGENTS.md del módulo](../AGENTS.md) fija el proceso obligatorio de planificación, implementación y entrega.
 
@@ -82,7 +82,7 @@ El piloto registra sus entradas en `<repo>/.codex/hooks.json`. Codex admite esa 
 | Estado y telemetría | `~/.codex/codex-context-policy/`, separados por repositorio y sesión | Caché, decisiones y medición locales; fuera del árbol del proyecto. |
 | Clasificación Jev | API de TypeSafe | Servicio externo consultado únicamente cuando corresponde y está habilitado. |
 
-Configuración propuesta; este archivo y el programa todavía no existen:
+Original minimal configuration shape; the installed implementation and extended family settings are documented in [usage](usage.md):
 
 ```json
 {

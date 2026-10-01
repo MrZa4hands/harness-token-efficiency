@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, lstat, access, symlink, realpath, copyFile, chmod, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, lstat, access, symlink, realpath, copyFile, chmod, rename, readlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
@@ -42,6 +42,10 @@ test('off_and_additive_install', async () => {
   assert.equal(await access(join(repoRoot, '.codex/codex-context-policy.json')).then(() => true, () => false), false);
   const installed = await updateContextPolicyInstall({ ...operation, apply: true });
   assert.equal(installed.error, null);
+  const skillPath = join(repoRoot, '.agents/skills/codex-context-operations');
+  assert.equal(await lstat(skillPath).then(stat => stat.isSymbolicLink(), () => false), true,
+    'Installation must register the owned native skill without copying source');
+  assert.equal(await readlink(skillPath), join(sourceRoot, 'skills/codex-context-operations'));
   const installedHooks = JSON.parse(await readFile(hooksPath, 'utf8'));
   assert.deepEqual(installedHooks.hooks.PreToolUse, foreignHooks.hooks.PreToolUse);
   assert.deepEqual(installedHooks.hooks.UserPromptSubmit[0], foreignHooks.hooks.UserPromptSubmit[0]);
@@ -71,8 +75,34 @@ test('off_and_additive_install', async () => {
   const afterRemoval = JSON.parse(await readFile(hooksPath, 'utf8'));
   assert.deepEqual(afterRemoval.hooks.PreToolUse, foreignHooks.hooks.PreToolUse);
   assert.deepEqual(afterRemoval.hooks.UserPromptSubmit, [...foreignHooks.hooks.UserPromptSubmit, extra]);
+  assert.equal(await lstat(skillPath).then(() => true, error => error.code !== 'ENOENT'), false,
+    'Withdrawal must remove the exact owned skill registration');
   assert.equal((await updateContextPolicyInstall({ ...operation, action: 'remove', apply: true })).changed, false);
   assert.equal((await lstat(hooksPath)).mode & 0o777, originalMode);
+});
+
+// Taking over an unrelated native skill destroys user configuration; edited registrations must survive withdrawal.
+test('skill_registration_preserves_foreign_entries', async () => {
+  const repoRoot = await createInstallTarget(); const skillDirectory = join(repoRoot, '.agents/skills');
+  await mkdir(skillDirectory, { recursive: true });
+  const skillPath = join(skillDirectory, 'codex-context-operations'); await mkdir(skillPath);
+  await writeFile(join(skillPath, 'SKILL.md'), 'Foreign native skill fixture.');
+  const hooksPath = join(repoRoot, '.codex/hooks.json'); const original = await readFile(hooksPath, 'utf8');
+  const operation = { repo_root: repoRoot, source_root: sourceRoot, action: 'install', apply: true };
+  const collided = await updateContextPolicyInstall(operation);
+  assert.ok(collided.error, 'Foreign skill collisions must stop registration before writes');
+  assert.equal(collided.changed, false); assert.equal(await readFile(hooksPath, 'utf8'), original);
+  assert.equal(await readFile(join(skillPath, 'SKILL.md'), 'utf8'), 'Foreign native skill fixture.');
+  const ownedRoot = await createInstallTarget(); const ownedOperation = { ...operation, repo_root: ownedRoot };
+  assert.equal((await updateContextPolicyInstall(ownedOperation)).error, null);
+  const ownedPath = join(ownedRoot, '.agents/skills/codex-context-operations');
+  await rename(ownedPath, ownedPath + '-preserved');
+  const foreignTarget = join(temporaryRoot, 'foreign-skill-source'); await mkdir(foreignTarget);
+  await writeFile(join(foreignTarget, 'SKILL.md'), 'Replacement foreign skill fixture.');
+  await symlink(foreignTarget, ownedPath);
+  assert.equal((await updateContextPolicyInstall({ ...ownedOperation, action: 'remove' })).error, null);
+  assert.equal(await readlink(ownedPath), foreignTarget, 'Removal cannot unlink a replacement owned by someone else');
+  assert.deepEqual(JSON.parse(await readFile(join(ownedRoot, '.codex/hooks.json'), 'utf8')), foreignHooks);
 });
 
 // Native Codex discovers linked-worktree hooks in the primary checkout.

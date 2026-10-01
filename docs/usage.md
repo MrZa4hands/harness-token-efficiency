@@ -4,7 +4,7 @@ read_when: Before installing, trusting, configuring, or removing the context pol
 
 # Usage and Configuration
 
-Phases 0–1 establish compatibility, measurement and isolated shadow decisions. Off is inert; shadow and unpromoted enforce record proposals without injecting evidence, rewriting commands or running checks. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after its negative calibration result.
+Phases 0–2 establish compatibility, measurement, isolated decisions and exact expandable context. Off is inert; shadow and unpromoted enforce prepare privately without injecting evidence, rewriting commands or running checks. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after its negative calibration result.
 
 ## Install and Trust
 
@@ -55,7 +55,7 @@ Initial policy:
 {"mode":"off","jev_enabled":true}
 ```
 
-Modes are `off`, `shadow`, and `enforce`. `operations` is an optional object whose values use those modes; absent operations normalize to `{}`. Missing, invalid, external, nonregular or nonprivate policy reads as `off`. Phase 1 has no promoted operation; enforce remains observational. There is no `mode` or `promote` management command yet; those belong to later phases.
+Modes are `off`, `shadow`, and `enforce`. `operations` is an optional object whose values use those modes; absent operations normalize to `{}` and remain observational. Missing, invalid, external, nonregular or nonprivate policy reads as `off`. Context families are `code_context`, `code_review_context`, and `documentation_context`; both global and family mode must be enforce and current measured proof must qualify before output. The `promote` command is available; a mode-management command remains a later-phase task. No actual family is promoted.
 
 The hook entry point is `node /absolute/context-policy/src/codex-context-policy.mjs hook`. It reads one JSON event on stdin, limits input to 1,000,000 UTF-8 bytes, and uses stderr for a generic rejected-input diagnostic without echoing input. In off mode it returns no stdout, performs no network/Git/rg work, and retains the native baseline. Installed execution requires the target's private receipt and owned native definition. The cwd must be the canonical target/worktree root; subdirectory and non-Git capture remain baseline. Automatic receipt/config/state reads reject FIFOs without waiting for writers.
 
@@ -98,7 +98,7 @@ Eligible queries contain current/active single-line explicit text up to 1,600 by
 
 State lives below `~/.codex/codex-context-policy/<repo-hash>/<session-hash>/`: `task.json`, immutable `decision-<uuid>.json` metadata and, when needed, `history-gap`. Directories are 0700; files are 0600. Recent state keeps six requests and the active explicit objective. Decision telemetry contains hashes, versions, timing and valid billing counters, never prompt text or code. Failures before validated capture produce a generic diagnostic rather than fabricated decision metadata.
 
-Raw snapshot capture isolates global/system Git configuration, follows repository-local ignores, and avoids Git clean filters. Submodules, external evidence symlinks, changed snapshots, more than 64 MB or a 1.8-second capture limit abstain. Explicit ignored-file discovery and richer retrieval belong to phase 2.
+Raw snapshot capture isolates global/system Git configuration while preserving effective global and repository-local ignore intent, and avoids Git clean filters. Submodules, external evidence symlinks, changed snapshots, more than 64 MB or a 1.8-second capture limit abstain. Explicit ignored paths remain retrievable. Canonical receipt ownership prevents automatic selection of untracked managed runtime contents; explicit, tracked and foreign evidence remains available. Unignored private runtime makes automatic review abstain rather than exposing its contents.
 
 Configuration changes, conflicting writers and interrupted capture make continuity unknown. An ambiguous continuation such as “hazlo” cannot repair missing history. A standalone explicit request can restore continuity while preserving protected requirements; native compaction/resume coverage remains unverified. No delivered-context reuse is performed yet.
 
@@ -121,4 +121,55 @@ A busy error identifies the exact lock path. Verify no installer is running and 
 
 Changing this installation's hook source document can invalidate trust of other handlers in that document. In the observed client, removing the six probes changed the policy's trust to `modified`; restoring the exact authorized bytes restored trust. Coordinate registration edits with native re-trust. Temporary probes must be removed before measuring an optimization baseline.
 
-Never remove a source worktree while a hook refers to it. Current phase-0 probes/off handler and the phase-1 policy still use their temporary source worktrees, so cleanup is retained until safe withdrawal or relocation and trust are complete. See [release procedure](RELEASING.md).
+Never remove a source worktree while a hook or installed skill refers to it. Phase-0 probes/off handler and the phase-1 policy still use their temporary sources. Phase-2 private trial fixtures also retain owned skill links and evaluation evidence. Preserve those resources until withdrawal or relocation and trust are complete. See [release procedure](RELEASING.md).
+
+## Read Exact Context and Continue
+
+Installation creates an owned `.agents/skills/codex-context-operations` symlink to the source skill. Existing collisions stop installation before writes; foreign replacements survive withdrawal. Resolve its physical directory to find `../../src/codex-context-policy.mjs`. These commands use ordinary Codex tool permissions and require current private task state.
+
+| Operation | Required JSON request fields |
+|---|---|
+| `select_code_context` | `repo_root`, `session_id`, `paths`, `symbols`, `family`, `scope`, `exhaustive` |
+| `get_repository_changes` | `repo_root`, `session_id`, `scope` |
+| `read_context` | `repo_root`, `session_id`, `reference`; optional `cursor` |
+
+Use repository/session identity from the current hook provenance. A request file for code selection can contain:
+
+```json
+{"repo_root":"/absolute/project","session_id":"current-native-session","paths":["src/entry.mjs"],"symbols":[],"family":"code_context","scope":{"kind":"worktree"},"exhaustive":false}
+```
+
+```sh
+rtk proxy node /absolute/context-policy/src/codex-context-policy.mjs select_code_context < /private/request.json
+rtk proxy node /absolute/context-policy/src/codex-context-policy.mjs read_context < /private/continuation.json
+```
+
+For the continuation request, set `reference` to the returned opaque `full_result` and `cursor` to `next_cursor`. Follow every page required by the task. An omission's own `cursor` requests that complete oversized unit; this explicit whole retrieval may exceed the routine 8000-byte JSON envelope. Binary files use labelled base64; binary changes preserve a base64 before/after pair. UTF-8 evidence retains BOM, CRLF and exact SHA-256. A trial may explicitly supply its isolated `state_dir`; the normal default is `~/.codex/codex-context-policy`.
+
+Scopes are `{"kind":"worktree"}` or `{"kind":"range","base":"<full-commit-id>","head":"<full-commit-id>"}`. Range selection reads immutable target blobs. Worktree changes compare raw HEAD/index/working bytes, not filter-normalized Git status; renames may be deletion/addition. Literal references remain partial and require broader exploration. Preserve `status`, `exit_code` and `stderr`; non-UTF8 utility diagnostics are explicitly labelled base64. Missing task state, changed bytes/modes or stale epochs require ordinary exploration or fresh selection. Seven-day result expiry is logical; physical result cleanup follows phase 3.
+
+Automatic preparation runs before generation without waiting for skill selection. It shares a two-second deadline, including the audit boundary, and at most 6000 UTF-8 bytes/approximately 2000 tokens. Explicit code paths/symbols seed code context; documentation requests seed docs/instructions. Automatic review accepts affirmative whole-worktree requests and gathers dependencies from every changed-file inventory page; narrowed, staged or range prompts conservatively retain baseline. Failed or incomplete preparation never runs checks or installs packages. Proposal metadata does not certify delivery or reusable context.
+
+## Measure and Promote a Context Family
+
+Use only complete actual paired evidence described in [evaluation](evaluation.md). The report command requires a private, owned, regular JSONL run file no larger than 4 MB and the exact versioned corpus:
+
+```sh
+rtk proxy node src/pilot-evaluation.mjs report --runs /private/runs.jsonl --tasks evaluation/tasks.jsonl > /private/report.json
+rtk proxy node scripts/manage-context-policy.mjs promote --repo /absolute/project --report /private/report.json --family code_context --variant deterministic
+```
+
+Keep the report private (0600); append `--apply` only for a qualifying reviewed report. The manager recomputes original rows, checks current native coverage and source/model/effort versions, and stores `.codex/codex-context-promotion-<family>-<variant>.json` plus its hash in `promotions`. It sets that family's mode to enforce while preserving the global mode cap. `hybrid` requires independently useful, correctly bound actual Jev usage; disabling Jev preserves separately qualified deterministic records. The current limited experiment cannot pass these conditions, so keep global shadow and Jev disabled.
+
+## Restricted Native Trial
+
+The evaluator's temporary `trial` handler accepts only a frozen corpus prompt, canonical root, original HEAD, raw revision, supported client, actual model/effort and an unexpired private admission. Admission fields are `version:1`, unique `run_id`, `task_id`, `variant`, `repo_root`, `repo_revision`, `main_model`, `reasoning_effort`, `client_version`, `expires_at`; hybrid may include discovered `jev_model` and `jev_actual_model`. Expiry is at most 24 hours. Default admission is `<trial>/.codex/codex-context-trial.json`; `--admission` may name a private file in a private directory without changing the stable native command.
+
+```sh
+rtk proxy node scripts/manage-context-trial.mjs install --admission /private/trial/admission.json
+rtk proxy node scripts/manage-context-trial.mjs install --admission /private/trial/admission.json --apply
+rtk proxy node scripts/manage-context-trial.mjs remove --admission /private/trial/admission.json
+rtk proxy node scripts/manage-context-trial.mjs remove --admission /private/trial/admission.json --apply
+```
+
+This manager adds one owned global UserPromptSubmit entry and keeps its receipt beside admission; native trust still requires Codex's normal control. Unknown model/effort or mismatched prompt/state emits nothing. It never enables production enforce. Retain attempted/failed sessions and actual whole-task usage; immutable observation timing excludes its own audit, and native wall time includes it. A transcript must separately prove exact developer evidence before generation. Withdraw the temporary entry after the experiment, preserving foreign handlers and source-document trust.

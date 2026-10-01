@@ -7,7 +7,7 @@ read_when: Before analyzing the module, reviewing its specification, or preparin
 
 Research and design for reducing tokens in Codex through automation, inspired by LifeOS and Jev.
 
-Phases 0–1 provide native hook installation, version-limited usage measurement, a reproducible pilot corpus, isolated task state, and bounded Jev decisions in shadow. Read [AGENTS.md](AGENTS.md) before planning or implementation.
+Phases 0–2 provide native hook installation, version-limited usage measurement, a reproducible pilot corpus, isolated task state, bounded Jev decisions, and exact expandable repository evidence. Automatic context preparation remains in shadow until a family passes the paired evaluation. Read [AGENTS.md](AGENTS.md) before planning or implementation.
 
 This directory is an independent Git repository, initialized on October 1, 2026. LifeOS remains sibling reference material; its former parent Git metadata was moved to Trash.
 
@@ -22,17 +22,18 @@ This directory is an independent Git repository, initialized on October 1, 2026.
 | [Evaluation](docs/evaluation.md) | Usage contracts, fixture, corpus, and measurement limitations. | Before collecting or comparing usage. |
 | [Phase 0 validation](docs/validation/phase-0.md) | Native observations, TDD, reviews, and delivery evidence. | Before assessing compatibility or resuming delivery. |
 | [Phase 1 validation](docs/validation/phase-1.md) | State/credential regressions, actual calibration, both reviews, and limits. | Before assessing shadow decisions or configuring Jev. |
+| [Phase 2 validation](docs/validation/phase-2.md) | Exact retrieval, native preparation, both reviews, actual experiments and limits. | Before assessing context delivery or promotion. |
 | [Release procedure](docs/RELEASING.md) | Required checks, merge, and safe cleanup. | Before closing a phase PR. |
 | [Changelog](CHANGELOG.md) | Pilot capabilities and limitations. | Before using a new phase. |
 
-Roe authorized the five-phase plan. Phase 0 is merged; phase 1 is implemented and reviewed in PR #2. Phases 2–4 remain pending. Phase 1 records proposals without injecting context, rewriting commands, or running checks. No operation is promoted and token savings have not been measured.
+Roe authorized the five-phase plan. Phases 0–1 are merged; phase 2 is implemented and reviewed in PR #3. Phases 3–4 remain pending. The installed operations skill exposes `select_code_context`, `get_repository_changes`, and `read_context`; private whole-unit continuations preserve required evidence. No operation is promoted and no general token saving is claimed.
 
 Jev credentials can be configured during installation through a hidden macOS Keychain prompt: `install --configure-jev --apply`. Credentials stay out of hook JSON and Git; environment credentials take precedence. See [setup and recovery](docs/usage.md). Actual tuning/held-out observations accepted no semantic proposals at the tested threshold, so the pilot keeps Jev disabled. Corrective replay retained 19 correct local proposals out of 60 cases; this is not savings evidence.
 
-The delivery remote is `https://github.com/MrZa4hands/harness-token-efficiency.git`; implementation PRs target `develop`. Phase 0 is tracked by merged PR #1; phase 1 by PR #2. Run the standard-library gate from this checkout:
+The delivery remote is `https://github.com/MrZa4hands/harness-token-efficiency.git`; implementation PRs target `develop`. Phases 0, 1, and 2 use PRs #1, #2, and #3. Run the standard-library gate from this checkout:
 
 ```sh
 rtk proxy node scripts/verify-context-policy.mjs
 ```
 
-The gate currently passes 76 tests plus syntax, JSON/corpus, document links, and source-scope checks. Native compatibility is separately recorded in the validation documents; tests alone cannot establish client coverage.
+The gate currently passes 101 tests plus syntax, JSON/corpus, document links, and source-scope checks. Native compatibility is separately recorded in the validation documents; tests alone cannot establish client coverage.
