@@ -121,7 +121,9 @@ async function prepareContextInstall({ repo_root, source_root, action }) {
     const groups = hooks[event] ?? [];
     if (groups.some(existing => isDeepStrictEqual(existing, group))) continue;
     const commands = new Set(group.hooks.map(handler => handler.command));
-    if (groups.some(existing => existing.hooks?.some(handler => commands.has(handler.command)))) {
+    const ownerMarker = group.hooks.map(handler => handler.command?.match(/ # codex-context-policy-owner=[a-f0-9]{64}$/)?.[0]).find(Boolean);
+    if (Object.values(hooks).some(eventGroups => eventGroups.some(existing => existing.hooks?.some(handler =>
+      commands.has(handler.command) || (ownerMarker && typeof handler.command === 'string' && handler.command.includes(ownerMarker)))))) {
       throw new Error('Context install owned hook was modified; preserve it and reconcile its definition before retrying.');
     }
   }

@@ -120,6 +120,32 @@ test('modified_owned_definition_is_preserved_and_exact_foreign_copy_survives', a
   assert.deepEqual(JSON.parse(await fs.readFile(hooksPath, 'utf8')).hooks.UserPromptSubmit, [copied.hooks.UserPromptSubmit[1]]);
 });
 
+test('edited_owned_commands_and_moved_events_preserve_receipt_until_reconciled', async () => {
+  for (const modification of ['command', 'event', 'comment']) {
+    const root = await createRecoveryTarget();
+    const operation = { repo_root: root, source_root: sourceRoot, action: 'install', apply: true };
+    assert.equal((await updateContextPolicyInstall(operation)).error, null);
+    const hooksPath = join(root, '.codex/hooks.json');
+    const receiptPath = join(root, '.codex/codex-context-policy-install.json');
+    const originalReceipt = await fs.readFile(receiptPath, 'utf8');
+    const hooks = JSON.parse(await fs.readFile(hooksPath, 'utf8'));
+    const group = hooks.hooks.UserPromptSubmit[0];
+    if (modification === 'command') group.hooks[0].command = group.hooks[0].command.replace(' hook #', ' hook EXTRA #');
+    else if (modification === 'comment') group.hooks[0].command += ' edited comment';
+    else { hooks.hooks.SessionStart = [group]; delete hooks.hooks.UserPromptSubmit; }
+    const modifiedBytes = JSON.stringify(hooks);
+    await fs.writeFile(hooksPath, modifiedBytes);
+    for (const action of ['install', 'remove']) {
+      const result = await updateContextPolicyInstall({ ...operation, action });
+      assert.ok(result.error, modification + ': edited ownership cannot be silently abandoned');
+      assert.equal(result.changed, false);
+      assert.equal(await fs.readFile(hooksPath, 'utf8'), modifiedBytes);
+      assert.equal(await fs.readFile(receiptPath, 'utf8'), originalReceipt);
+      assert.equal(await fs.access(join(root, '.codex/codex-context-policy.json')).then(() => true, () => false), true);
+    }
+  }
+});
+
 test('symlinked_cli_entrypoints_execute_and_emit_their_protocol', async t => {
   const alias = join(temporaryRoot, 'source-alias');
   await fs.symlink(sourceRoot, alias);
