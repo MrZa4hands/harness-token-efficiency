@@ -6,6 +6,14 @@ read_when: Before assessing the capabilities of the current pilot phase.
 
 ## Unreleased
 
+### Phase 4 — Family Qualification and Immediate Withdrawal
+
+- Change only the global mode with `mode off|shadow|enforce --repo <project>`, without restarting Codex or changing Jev settings, family records or native trust. Off leaves the next invocation inert. See [configuration](docs/usage.md).
+- Qualify seven operation families from recomputed paired evidence while distinguishing three automatic context consumers from four qualification-only families. Retain failed/excluded task IDs, invalid-row diagnostics, descriptive repeats and unknown billing; insufficient evidence grants no activation.
+- Preserve private policy/report bytes when canonical output exceeds 32 KB/4 MB or current policy is invalid. Jev setup shares the installer lock with mode/promotion writes, including linked worktrees. Ordered native follow-ups require matching prior version and audit provenance; automatic component-off settings preserve ordinary manual authority.
+- Verify 154 passing tests and both required review stages; correct all 17 first-stage and one second-stage confirmed findings through failing-first regressions. Test files run serially with unchanged production deadlines. Thanks to Roe for native trust and effort verification. See [phase 4 validation](docs/validation/phase-4.md).
+- Retain 207 native attempts, including failures: 185 of 189 held-out/repeated attempts completed, 179 answered correctly, 47 omitted required evidence and two left checks incomplete or broadened. Complete billing and provider cost remain unknown; no family qualifies and no total-token saving is demonstrated. Jev remains disabled. Off/uninstall smoke preserves foreign hooks and verifies a fresh native baseline without experimental context.
+
 ### Phase 3 — Recoverable Results and Declared Checks
 
 - Reuse exact identical private artifacts while continuing to deliver evidence on every native read. Preserve current code hashes, original check execution identity, edit invalidation and whole-unit recovery. Owned physical expiry is bounded and opportunistic; no off/idle cleanup guarantee. See [operations](docs/usage.md).

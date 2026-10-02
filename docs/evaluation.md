@@ -4,7 +4,7 @@ read_when: Before collecting usage, materializing pilot cases, or making savings
 
 # Evaluation
 
-Phases 0–3 supply measurement indicators, synthetic cases, shadow calibration, restricted native trials, recomputed context promotion criteria and final-source check/reuse integration. Component storage measurements and native smoke establish their stated integration scopes; the full repeated evaluation remains phase 4. No family is promoted and no general saving is claimed.
+Phases 0–4 supply measurement indicators, synthetic cases, shadow calibration, restricted native trials, seven-family qualification, check/reuse integration and a completed native paired experiment. Component measurements and native smoke establish their stated scopes. The full experiment did not qualify a family; no general saving is claimed.
 
 ## Session Usage
 
@@ -67,7 +67,7 @@ Native shadow smoke confirms one installed trusted rule proposal with no tools, 
 rtk proxy node scripts/verify-context-policy.mjs
 ```
 
-The current gate passes 138 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
+The current gate passes 154 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Test files run serially because concurrent workers interfered with strict deadlines; production budgets and within-file concurrency tests are unchanged. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
 
 Native observations are recorded separately in [phase 0 validation](validation/phase-0.md) and [phase 1 validation](validation/phase-1.md). Direct App tools, direct command tools, MCP, compaction, and resume retain their stated unverified status. Remaining probes must be withdrawn before optimization-baseline runs. Later paired experiments must preserve model, effort, prompts, starting state, order/cache controls, full evidence/check outcomes, all providers/workers, and expansion/correction costs. Unknown usage and failed tasks cannot be silently discarded to manufacture savings.
 
@@ -79,9 +79,11 @@ Native observations are recorded separately in [phase 0 validation](validation/p
 
 `quality` requires `correct:true`, `evidence_complete:true`, `checks_complete:true`, `critical_regression:false`. These are independently assessed facts, not values inferred from classifier agreement or filled in after an unobserved session. Usage must include workers, all providers, corrections and expansion costs; unknown coverage remains unknown and blocks promotion.
 
-All sixty held-out tasks need all three actual variants, preserving paired prompt/state/model/effort and distinct order positions. Each family needs at least ten pairs, no failed required quality evidence, median total-token reduction of at least 20%, nonincreasing median duration, and p95 paired duration increase at most 1000 ms. Hybrid must additionally save tokens over the same deterministic family without extra individual latency. Repeated experiments require separately identified cohorts; repeat aggregation/dispersion is a phase-4 extension, not fabricated duplicate rows.
+All sixty held-out tasks need all three actual variants per experiment, preserving paired prompt/state/model/effort and distinct order positions. Each family needs at least ten pairs, no failed required quality evidence, median total-token reduction of at least 20%, nonincreasing median duration, and p95 paired duration increase at most 1000 ms. Hybrid must additionally save tokens over the same deterministic family without extra individual latency. Separate `experiment_id` values identify repeat cohorts; duplicate identities are rejected. Any incomplete cohort conservatively blocks qualification even when its observed pairs remain useful descriptions.
 
-The private report contains `report_version:1`, `corpus_hash`, original `runs`, family results, `promotions`, and `limitations`. Manager `promote` rechecks current owned installation, native coverage, actual family model/effort and source fingerprints before storing separate deterministic/hybrid reports. A qualifying report cannot exceed the current global mode cap; unknown versions and mixed actual provider models abstain. See [operational commands](usage.md).
+The private report contains `report_version:1`, `corpus_hash`, original `runs`, family results, `promotions`, `limitations` and, for repeated input, `experiments`. Failed/excluded/incomplete task IDs remain named; invalid run IDs and original raw-row indexes explain rejected input without deleting it. Valid observed pairs still receive descriptive durations. `correct_pairs` counts quality-valid pairs with verified complete billing, not correct final answers; zero can coexist with many correct answers and unknown token metrics. Minimum/maximum/list reductions expose dispersion when billing qualifies.
+
+Seven recognized families always receive deterministic/hybrid summaries; unmeasured families have sample zero and null metrics. Manager `promote` rechecks the entire current policy, owned installation, native coverage, actual family model/effort and source fingerprints before storing separate reports. Source fingerprints include the native trial and shared lock dependencies. A qualifying report cannot exceed the global mode cap; unknown versions and mixed actual provider models abstain. Reports trust independently collected owner attestations; private storage does not authenticate claims against a malicious report owner. See [operational commands](usage.md).
 
 ## Native Integration Limits
 
@@ -97,4 +99,40 @@ Ten identical component reads per source compared phase 2 with final phase-3 sou
 
 Fresh final-source native smoke used the existing Desktop engine `0.159.2`, actual `gpt-6.1-sol`/`high`, ordinary tools and unchanged permissions, with no model/effort overrides. It verified repeated exact delivery with shared storage, edit invalidation with BOM/CRLF retained, declared npm failure exit 7 and exact recovery of 26054 stderr bytes/1002 lines. The whole task took approximately 145.43 seconds. Twelve native per-response records match final CLI/session usage; all 33 commands, including one failed source lookup and three expected exit-7 operations, remain included. Raw usage, prompt, session identity and source hashes remain private. No worker inference was observed; broader auxiliary-provider coverage and subscription price remain unknown.
 
-The earlier pre-review smoke is retained as historical evidence, not final-source certification. Actual reviewer-provider usage is also retained separately and is not subtracted from or attributed to optimizer savings. No production delivery receipt was created, no rewrite was admitted and no Jev query was made by these wrappers. Native compaction/resume, native rewrite/permission equivalence, Windows cancellation and actual Yarn execution remain unverified. See [phase 3 validation](validation/phase-3.md). Only the complete paired phase-4 experiment can qualify a family.
+The earlier pre-review smoke is retained as historical evidence, not final-source certification. Actual reviewer-provider usage is also retained separately and is not subtracted from or attributed to optimizer savings. No production delivery receipt was created, no rewrite was admitted and no Jev query was made by these wrappers. Native compaction/resume, native rewrite/permission equivalence, Windows cancellation and actual Yarn execution remain unverified. See [phase 3 validation](validation/phase-3.md). Phase-4 outcomes follow below.
+
+## Phase 4 Native Results
+
+The unchanged corpus was executed through the existing Desktop-bundled CLI `0.159.2`, actual `gpt-6.1-sol`/`high`, with no model/effort or permission overrides. Source was frozen at `746478dfc63d8de501b2c6863c772f6c65179e72`; corpus SHA-256 was `293c22bfc46d9408308b6743ef99185924a75bb51351b9dd1578124707326893`. Follow-ups used real resumed prior turns. Variant order rotated per task; ambient caches and host load were recorded rather than reset, limiting causal interpretation.
+
+| Cohort | Attempts | Native completions | Correct answers | Required-evidence omissions | Incomplete/broadened checks | Critical regressions |
+|---|---:|---:|---:|---:|---:|---:|
+| Separate tuning | 18 | 18 | 18 | 9 | 0 | 0 |
+| Primary held-out | 180 | 177 | 171 | 43 | 2 | 0 |
+| Variable repeats | 9 | 8 | 8 | 4 | 0 | 0 |
+| Held-out plus repeats | 189 | 185 | 179 | 47 | 2 | 0 |
+
+| Primary variant | Attempts | Native completions | Correct answers | Evidence omissions | Incomplete/broadened checks |
+|---|---:|---:|---:|---:|---:|
+| Baseline | 60 | 59 | 58 | 13 | 1 |
+| Deterministic | 60 | 59 | 56 | 15 | 1 |
+| Hybrid | 60 | 59 | 57 | 15 | 0 |
+
+Four capacity failures remain failed attempts, including one partially executed documentation task. Two additional fixture-preparation failures made no native generation call and were preserved separately before fresh setup IDs were admitted. Three earlier identity-mismatched calibration attempts remain outside these cohorts. Configuration drift to medium/xhigh stopped the driver before another unmatched call; Roe restored high. No paid failed task was retried, prompt/corpus tuned or favorable result substituted.
+
+All 207 scheduled task-attempt captures and counters remain private; 203 completed runs passed independent per-response versus final cumulative checks. Follow-up totals include prior native turns, corrections and expansions exactly once. Failed partial usage remains a lower bound or unknown, never zero. Complete worker/provider coverage is false and cost is null; main-session counters cannot become task-wide billing. Observed provider attempts total 58 (6 tuning, 51 primary, 1 repeat); 52 runs have unknown Jev billing, including missing-audit runs where a baseline label cannot establish zero.
+
+Two completed primary runs lacked native trial observations. Their experimental source/variant identity remains unverified, without reruns. An independent zero-attempt provider audit on one of them remains known zero; missing observation alone does not determine billing. Strict frozen evidence/assertions also exceed some scoped prompts, including empty-range review, combined follow-up documentation and check-source requirements. Those tensions and the original unfavorable assessments remain recorded.
+
+Corrected report generation retains the original 189 rows. Code-context descriptions contain 31 paired tasks, review 10, documentation 11 and checks 11; get-changes, continuation and rewrite families are unmeasured. The nine repeats add three observed pairs rather than a complete independent sixty-task cohort. Descriptive paired latency deltas, including failed attempts, are:
+
+| Family | Pairs | Deterministic median / p95 delta (s) | Hybrid median / p95 delta (s) |
+|---|---:|---:|---:|
+| `code_context` | 31 | +3.655 / +81.310 | +2.373 / +45.841 |
+| `code_review_context` | 10 | +7.577 / +44.221 | −10.276 / +90.612 |
+| `documentation_context` | 11 | −9.059 / +28.268 | −2.993 / +22.222 |
+| `run_project_checks` | 11 | +5.051 / +19.199 | +3.808 / +60.907 |
+
+These are observed candidate-minus-baseline wall-clock differences, not controlled causal speedups. Every qualified total-token reduction is null and `promotions` is empty. Unknown complete billing, quality failures and incomplete repeats independently prevent activation. More paid cases cannot reconstruct historical missing counters or remove recorded omissions. Current source corrections also invalidate the frozen source as new qualification proof.
+
+The global trial was withdrawn. Separate corrected-source off/uninstall smoke preserves foreign hooks, removes only owned hooks/skill, keeps a modified off/Jev-disabled policy and verifies a fresh native baseline with no tools or experimental context; foreign Ponytail context remains present. Positive native activation is unavailable because no real family qualifies. See [phase 4 validation](validation/phase-4.md) for source/review bindings and retention. Keep production observational and Jev disabled; no total-token or provider-cost saving is demonstrated.

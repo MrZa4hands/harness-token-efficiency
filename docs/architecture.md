@@ -4,12 +4,13 @@ read_when: Before changing hook installation, policy dispatch, or usage measurem
 
 # Current Architecture
 
-Phases 0–3 use Node standard-library modules, native hooks, and existing Git/rg. There is no resident daemon, new provider framework, database, dependency installation, or custom Codex interface.
+Phases 0–4 use Node standard-library modules, native hooks, and existing Git/rg. There is no resident daemon, new provider framework, database, dependency installation, or custom Codex interface.
 
 | Module | Current responsibility |
 |---|---|
 | `src/codex-context-policy.mjs` | Verify installation/identity, reread policy, capture decisions, prepare eligible context, validate promotion before emission; setup and read-operation CLI. |
-| `scripts/manage-context-policy.mjs` | Additive native hook/skill registration, hidden credential/model setup, recomputed context promotion, and owned withdrawal. |
+| `scripts/manage-context-policy.mjs` | Additive native hook/skill registration, hidden credential/model setup, seven-family qualification, immediate mode changes and owned withdrawal. |
+| `src/context-install-lock.mjs` | Resolve the registered primary checkout shared by installer, mode, promotion and Jev policy writers. |
 | `src/context-state.mjs` | Raw repository snapshots, protected requirements, conservative continuity, private CAS storage, immutable decisions, bounded expiry. |
 | `src/jev-client.mjs` | Minimize safe scalar state, validate grouped answers/model/usage, issue one bounded request, discover/configure models. |
 | `src/context-credentials.mjs` | Prefer the environment, otherwise bounded Keychain lookup; native hidden setup outside the hook. |
@@ -18,11 +19,11 @@ Phases 0–3 use Node standard-library modules, native hooks, and existing Git/r
 | `src/context-result-expiry.mjs` | Owned artifact/header admission and bounded opportunistic physical expiry. |
 | `src/project-checks.mjs` | Current declared-check admission, explicit execution, cancellation, exact logs and visible infrastructure failures. |
 | `src/context-prefetch.mjs` | Code/review/documentation recipes under the shared deadline and byte envelope; incomplete proposals abstain. |
-| `src/context-promotion.mjs` | Complete paired corpus/quality/usage/version criteria and independent deterministic/hybrid qualification. |
-| `src/context-trial.mjs` | Private expiring native corpus admission; experimental preparation/audit, never production activation. |
+| `src/context-promotion.mjs` | Seven-family paired criteria, descriptive cohort aggregation, failed/excluded/invalid-row identities and independent deterministic/hybrid qualification. |
+| `src/context-trial.mjs` | Private expiring native corpus admission, ordered prior-turn/audit/version binding and production-equivalent hybrid continuity; never production activation. |
 | `scripts/manage-context-trial.mjs` | Additive owned global trial registration and exact withdrawal with separate native trust. |
 | `src/pilot-evaluation.mjs` | Usage/transcript/corpus adapters, fixtures, restricted trial CLI and recomputed paired reports. |
-| `scripts/verify-context-policy.mjs` | Run real syntax/tests/JSON/corpus/document-link/source-scope checks. |
+| `scripts/verify-context-policy.mjs` | Run syntax/tests/JSON/corpus/document-link/source-scope checks with serial deadline-sensitive test files. |
 | `tests/context-hook-probe.mjs` | Temporary native compatibility marker and hash-only event observation; never production policy. |
 
 The native client invokes the installed absolute Node/source command with hook JSON on stdin. Off returns without repository/network work. Enabled UserPromptSubmit captures canonical state, resolves local facts, optionally queries Jev, records metadata, persists state through CAS, and prepares exact evidence. Shadow keeps results private. Enforce emits only an independently qualified current family/model/effort/source report under the global/family cap. Proposal audits explicitly do not certify native delivery. Project coverage permits registration of observed events; native trust remains controlled by the user and client.
@@ -47,6 +48,8 @@ Install ordering is staged ownership → initial off policy → hook mutation �
 
 Writes use exclusive temporary files, preserve existing modes, compare prior bytes, and rename atomically under the shared lock. The result reports applied files even on failure. Static directory/file symlinks are rejected for installation; removal preserves nonregular policy without reading its target. A missing source can still be removed through the recorded canonical root or original alias. The user must preserve ownership receipts and check installed references before deleting any worktree.
 
+Mode, promotion and Jev model setup share that lock, including linked worktrees. Canonical policy output cannot exceed the runtime's 32,000-byte reader bound; stored canonical promotion reports cannot exceed 4 MB. Promotion validates the entire current policy through the runtime parser before constructing changes. A pre-write rejection preserves policy/report bytes; later partial failures retain the applied-path list. Mode changes only the global field and never create trust or qualification.
+
 The native operations skill is an owned source symlink, not a source copy. Receipt-verified untracked managed runtime bodies are private during automatic selection; tracked, foreign and explicitly requested evidence remains available. Automatic worktree review conservatively abstains on unignored private runtime or unknown/narrowed scope. Temporary native trials use a separate expiring admission and global ownership receipt; withdrawal preserves foreign definitions.
 
 ## Exact Evidence and Recovery
@@ -69,4 +72,8 @@ Usage collection requires explicit session, thread, and counter-epoch identity. 
 
 The transcript adapter supports only observed versions `0.159.2` and `0.159.3`; it reads a bounded initial-size snapshot and rejects corruption or changing metadata identity. Its CLI always reports session scope and unverified worker coverage. Manually validated worker relationships are separate evidence, not automatic complete-task discovery.
 
-Paired promotion validates all sixty held-out identities in three variants, actual complete usage/model/effort/source, quality, order/cache records and family thresholds. Only observed clients 0.159.2/0.159.3 can qualify. Hybrid additionally binds every executed Jev model and demonstrates incremental value. Historical paired integration and final-source smoke establish integration only; no family is promoted. Phase 3 measures internal storage reuse and explicit checks; the full repeated experiment and family switches remain phase 4 of the [plan](plans/2026-09-30-codex-token-efficiency.md). See [usage](usage.md), [evaluation](evaluation.md), and [phase 3 validation](validation/phase-3.md).
+Paired promotion validates all sixty held-out identities per experiment in three variants, actual complete usage/model/effort/source, quality, order/cache records and family thresholds. Invalid rows or incomplete cohorts block qualification while original runs, valid descriptive pairs, durations and named exclusions remain visible. Only observed clients 0.159.2/0.159.3 can qualify. Hybrid additionally binds every executed Jev model and demonstrates incremental value. The policy fingerprint includes trial and shared installation dependencies; mutable modes/promotion records do not invalidate their own proof.
+
+Seven families can hold qualification records, but only the three context recipes have automatic consumers. Manual reads/checks retain ordinary native authority; rewriting remains passthrough. Explicit component-off settings suppress automatic compositions that need them. A returned qualification status is not proof of emitted native evidence.
+
+The complete phase-4 experiment retained 207 attempts on historical source `746478d`; billing/quality/repeat limitations yielded no promotion. Corrected-source report generation and off/uninstall smoke are separate evidence, not a new qualifying cohort. Existing trusted source registrations remain preserved and observational. See [usage](usage.md), [evaluation](evaluation.md), and [phase 4 validation](validation/phase-4.md).
