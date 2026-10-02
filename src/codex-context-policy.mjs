@@ -132,7 +132,9 @@ export async function readContextPolicyConfig(repoRoot, signal) {
 
 async function readQualifiedContextReport(repoRoot, config, family, variant, signal) {
   const record = config.promotions?.[family]?.[variant];
-  if (!record || !['code_context', 'code_review_context', 'documentation_context'].includes(family)) return null;
+  if (!record) return null;
+  const { contextOperationFamilies } = await import('./context-promotion.mjs');
+  if (!contextOperationFamilies.includes(family)) return null;
   let file;
   try {
     const root = await realpath(repoRoot); const directory = join(root, '.codex');

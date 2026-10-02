@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { captureContextTask, saveContextTask, resolveContextFacts, resolveContextDecision, recordContextDecision } from './context-state.mjs';
+import { captureContextTask, readContextTask, saveContextTask, resolveContextFacts, resolveContextDecision, recordContextDecision } from './context-state.mjs';
 import { readContextSourceVersions } from './codex-context-policy.mjs';
 import { minimizeJevState, queryJevContext } from './jev-client.mjs';
 import { readJevCredential } from './context-credentials.mjs';
@@ -34,12 +34,15 @@ export async function handleContextTrial(input, options) {
     } finally { await file.close(); }
     const task = canonicalText.trim().split('\n').map(JSON.parse).find(task => task.task_id === admission.task_id);
     const expires = Date.parse(admission.expires_at);
+    const prompts = [...(task?.prior_requests ?? []), task?.prompt];
+    const promptIndex = admission.prompt_index ?? prompts.length - 1;
     if (admission.version !== 1 || !task || !['baseline', 'deterministic', 'hybrid'].includes(admission.variant) ||
         !/^[A-Za-z0-9_-]{1,128}$/.test(admission.run_id) || !Number.isFinite(expires) || expires <= Date.now() ||
         expires > Date.now() + 24 * 60 * 60 * 1000 || !/^[a-f0-9]{64}$/.test(admission.repo_revision) ||
         !/^[A-Za-z0-9._:/-]{1,128}$/.test(admission.main_model) || admission.main_model === 'unverified' ||
         !/^[a-z_-]{1,32}$/.test(admission.reasoning_effort) || admission.reasoning_effort === 'unverified' ||
-        !['0.159.2', '0.159.3'].includes(admission.client_version) || input.prompt !== task.prompt ||
+        !['0.159.2', '0.159.3'].includes(admission.client_version) || !Number.isSafeInteger(promptIndex) ||
+        promptIndex < 0 || promptIndex >= prompts.length || input.prompt !== prompts[promptIndex] ||
         await realpath(input.cwd) !== admission.repo_root || await realpath(admission.repo_root) !== admission.repo_root ||
         (options.task && options.task !== task.task_id) || (options.variant && options.variant !== admission.variant) ||
         (options.repo && await realpath(options.repo) !== admission.repo_root)) return unchanged;
@@ -47,6 +50,7 @@ export async function handleContextTrial(input, options) {
       admission.run_id, input.session_id, input.turn_id])) + '.json');
     observation = { run_id: admission.run_id, task_id: task.task_id, variant: admission.variant,
       session_id: input.session_id, turn_id: input.turn_id, prompt_hash: hash(input.prompt), corpus_hash: hash(canonicalText),
+      prompt_index: promptIndex,
       initial_revision: task.initial_revision, fixture_hash: task.fixture.sha256, input_fields: Object.keys(input).sort(),
       status: 'abstain', delivery_confirmed: false, emission_attempted: false, emitted: false,
       measurement_scope: 'hook-preparation-before-audit', duration_ms: null };
@@ -58,11 +62,16 @@ export async function handleContextTrial(input, options) {
     observation.versions = versions;
     if (versions.client_version !== admission.client_version || versions.main_model !== admission.main_model ||
         versions.reasoning_effort !== admission.reasoning_effort) { observation.reason = 'native-identity-unverified'; return unchanged; }
-    const state = await captureContextTask({ ...input, signal, versions }, null);
+    const stateDir = join(homedir(), '.codex/codex-context-policy');
+    const previous = await readContextTask(stateDir, input.cwd, input.session_id);
+    if (promptIndex > 0 && (!previous || previous.recent_requests.length !== promptIndex ||
+        previous.recent_requests.some((request, index) => request.text !== prompts[index]))) {
+      observation.reason = 'prior-conversation-unverified'; return unchanged;
+    }
+    const state = await captureContextTask({ ...input, signal, versions }, promptIndex > 0 ? previous : null);
     if (state.repo_head !== task.initial_revision || state.repo_revision !== admission.repo_revision) {
       observation.reason = 'repository-revision-mismatch'; return unchanged;
     }
-    const stateDir = join(homedir(), '.codex/codex-context-policy');
     const facts = resolveContextFacts(state); let decision = resolveContextDecision(state, facts, null);
     if (admission.variant === 'hybrid' && decision.action === 'baseline') {
       const minimized = minimizeJevState(state, facts);

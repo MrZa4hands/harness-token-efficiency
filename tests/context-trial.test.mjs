@@ -6,9 +6,43 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { materializePilotFixture } from '../src/pilot-evaluation.mjs';
 import { captureRepositorySnapshot } from '../src/context-state.mjs';
+import { readContextTask } from '../src/context-state.mjs';
 
 const temporaryRoot = await realpath(await mkdtemp(join(tmpdir(), 'context-trial-tests-')));
 after(() => assert.equal(spawnSync('trash', [temporaryRoot]).status, 0));
+
+// A final short follow-up must consume the admitted preceding turns, never fabricated prompt concatenation or missing history.
+test('native_trial_requires_ordered_prior_conversation_turns', async () => {
+  const root = join(temporaryRoot, 'conversation-fixture'); await materializePilotFixture(root);
+  const tasksPath = resolve('evaluation/tasks.jsonl');
+  const task = (await readFile(tasksPath, 'utf8')).trim().split('\n').map(JSON.parse).find(row => row.task_id === 'follow_up_04');
+  assert.equal(task.prior_requests.length, 2);
+  const snapshot = await captureRepositorySnapshot(root); const admissionPath = join(temporaryRoot, 'conversation-admission.json');
+  const admission = { version: 1, run_id: 'conversation-owner-trial', repo_root: root, repo_revision: snapshot.repo_revision,
+    task_id: task.task_id, variant: 'baseline', main_model: 'fixture-main-model', reasoning_effort: 'medium',
+    client_version: '0.159.2', expires_at: new Date(Date.now() + 60000).toISOString() };
+  const home = join(temporaryRoot, 'conversation-home'); await mkdir(home);
+  const bootstrap = join(temporaryRoot, 'conversation-home.mjs');
+  await writeFile(bootstrap, "import os from 'node:os';import {syncBuiltinESMExports} from 'node:module';" +
+    'os.homedir=()=>'+JSON.stringify(home)+';syncBuiltinESMExports();\n');
+  const session = 'ordered-conversation'; const stateDir = join(home, '.codex/codex-context-policy');
+  const invoke = async (index, prompt) => {
+    await writeFile(admissionPath, JSON.stringify({ ...admission, prompt_index: index }), { mode: 0o600 });
+    return spawnSync(process.execPath, ['--import', bootstrap, resolve('src/pilot-evaluation.mjs'), 'trial', '--tasks', tasksPath,
+      '--admission', admissionPath], { encoding: 'utf8', timeout: 3000, input: JSON.stringify({ cwd: root,
+      session_id: session, turn_id: 'ordered-turn-' + index, hook_event_name: 'UserPromptSubmit', prompt,
+      model: admission.main_model, reasoning_effort: admission.reasoning_effort, client_version: admission.client_version }) });
+  };
+  assert.equal((await invoke(0, task.prior_requests[0])).status, 0);
+  let state = await readContextTask(stateDir, root, session);
+  assert.equal(state?.recent_requests[0]?.text, task.prior_requests[0], 'Admitted first turn must actually capture isolated history');
+  await invoke(2, task.prompt);
+  assert.equal((await readContextTask(stateDir, root, session)).turn_id, 'ordered-turn-0', 'Skipping a prior turn must not bless final history');
+  await invoke(1, task.prior_requests[1]); await invoke(2, task.prompt);
+  state = await readContextTask(stateDir, root, session);
+  assert.deepEqual(state.recent_requests.map(row => row.text), [...task.prior_requests, task.prompt]);
+  assert.equal(state.turn_id, 'ordered-turn-2');
+});
 
 // An experimental hook must never inject for another prompt, root, model, task, revision or expired admission.
 test('native_trial_is_bound_to_the_declared_corpus_and_repository', async () => {

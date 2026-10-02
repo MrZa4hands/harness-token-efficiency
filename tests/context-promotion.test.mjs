@@ -20,6 +20,54 @@ function measuredRuns() {
   return createContextPilotRuns(versions);
 }
 
+// Omitting explicit-operation families from qualification would leave their mode caps and proofs inconsistent.
+test('promotion_requires_quality_and_measured_savings', () => {
+  for (const family of ['get_repository_changes', 'read_context', 'run_project_checks', 'rewrite_simple_command']) {
+    const runs = measuredRuns().map(row => ({ ...row, family }));
+    const report = comparePilotRuns(runs);
+    const config = { mode: 'enforce', jev_enabled: false, operations: { [family]: 'enforce' } };
+    assert.equal(resolveContextPromotion(config, family, versions, report), 'deterministic', family);
+    for (const globalMode of ['off', 'shadow']) assert.equal(resolveContextPromotion({ ...config, mode: globalMode },
+      family, versions, report), globalMode);
+    for (const familyMode of ['off', 'shadow']) assert.equal(resolveContextPromotion({ ...config,
+      operations: { [family]: familyMode } }, family, versions, report), familyMode);
+    assert.equal(resolveContextPromotion({ ...config, operations: {} }, family, versions, report), 'shadow');
+    assert.equal(resolveContextPromotion(config, family, { ...versions, policy_hash: 'c'.repeat(64) }, report), 'shadow');
+    for (const changedField of ['correct', 'evidence_complete', 'checks_complete']) {
+      const failed = structuredClone(runs); failed.find(row => row.variant === 'deterministic').quality[changedField] = false;
+      assert.equal(resolveContextPromotion(config, family, versions, comparePilotRuns(failed)), 'shadow', changedField);
+    }
+  }
+});
+
+// Separately identified repeats must not be discarded or qualify by hiding a failed cohort.
+test('paired_report_preserves_repeats_and_unmeasured_families', () => {
+  const first = measuredRuns().map(row => ({ ...row, experiment_id: 'primary', run_id: 'primary-' + row.run_id }));
+  const second = measuredRuns().map(row => ({ ...row, experiment_id: 'repeat', run_id: 'repeat-' + row.run_id }));
+  const report = comparePilotRuns([...first, ...second]);
+  assert.equal(report.runs.length, 360); assert.equal(report.experiments?.length, 2);
+  const family = report.families.find(row => row.family === 'code_context' && row.variant === 'deterministic');
+  assert.equal(family.sample_size, 120); assert.equal(family.median_token_reduction, 0.2);
+  assert.equal(family.minimum_token_reduction, 0.2); assert.equal(family.maximum_token_reduction, 0.2);
+  assert.ok(report.promotions.some(row => row.family === 'code_context' && row.variant === 'deterministic'));
+  const unmeasured = report.families.find(row => row.family === 'rewrite_simple_command' && row.variant === 'deterministic');
+  assert.equal(unmeasured.sample_size, 0); assert.equal(unmeasured.median_token_reduction, null); assert.ok(unmeasured.limitations.length);
+  second[1].quality.correct = false;
+  assert.ok(!comparePilotRuns([...first, ...second]).promotions.some(row => row.variant === 'deterministic'), 'Failed repeat remains disqualifying');
+  assert.equal(comparePilotRuns([...first, ...second.slice(1)]).promotions.length, 0, 'Incomplete repeat cannot be hidden');
+  const duplicate = structuredClone(second); duplicate[0].run_id = first[0].run_id;
+  assert.equal(comparePilotRuns([...first, ...duplicate]).promotions.length, 0, 'Run identities remain globally unique');
+});
+
+// Exact permitted latency boundaries must qualify independently of the owner's percentile implementation.
+test('paired_latency_uses_inclusive_p95_boundary', () => {
+  const runs = measuredRuns(); const deterministic = runs.filter(row => row.variant === 'deterministic');
+  for (const row of deterministic.slice(-4)) row.duration_ms = 2000;
+  assert.ok(comparePilotRuns(runs).promotions.some(row => row.variant === 'deterministic'), 'p95 +1000 with lower median passes');
+  for (const row of deterministic.slice(-4)) row.duration_ms = 2001;
+  assert.ok(!comparePilotRuns(runs).promotions.some(row => row.variant === 'deterministic'), 'p95 +1001 fails');
+});
+
 // Unknown native usage contracts cannot qualify an otherwise favorable paired experiment.
 test('context_promotion_requires_supported_client_usage_contract', async () => {
   const unsupported = { ...versions, client_version: '0.999.0' };

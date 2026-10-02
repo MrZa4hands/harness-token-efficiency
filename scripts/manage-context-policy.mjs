@@ -301,7 +301,8 @@ export async function updateContextPolicyInstall(options) {
 export async function promoteContextPolicy(options) {
   const files = []; let lock; let lockPath; let result;
   try {
-    if (!['code_context', 'code_review_context', 'documentation_context'].includes(options.family) ||
+    const { contextOperationFamilies } = await import('../src/context-promotion.mjs');
+    if (!contextOperationFamilies.includes(options.family) ||
         !['deterministic', 'hybrid'].includes(options.variant)) throw new Error('Context promotion family/variant rejected.');
     const root = await realpath(options.repo_root); const directory = join(root, '.codex');
     if (await realpath(directory) !== directory) throw new Error('Context promotion private directory rejected.');
@@ -368,11 +369,63 @@ export async function promoteContextPolicy(options) {
   }
 }
 
+/** Change only the global context policy mode under the shared installer lock; never grant promotion or native trust.
+ * @param {string} repoRoot
+ * @param {'off'|'shadow'|'enforce'} mode
+ * @returns {Promise<{changed:boolean,error:string|null}>} */
+export async function setContextPolicyMode(repoRoot, mode) {
+  let lock; let lockPath; let file; let result = { changed: false, error: null };
+  try {
+    if (!['off', 'shadow', 'enforce'].includes(mode)) throw new Error('Context mode value rejected.');
+    const root = await realpath(repoRoot); const directory = join(root, '.codex');
+    if (await realpath(directory) !== directory) throw new Error('Context mode directory rejected.');
+    const metadata = await lstat(join(root, '.git')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (metadata?.isSymbolicLink()) throw new Error('Context mode Git metadata rejected.');
+    const hooksRoot = metadata?.isFile() ? await realpath(resolveContextHooksRoot(root)) : root;
+    const hooksDirectory = join(hooksRoot, '.codex');
+    if (await realpath(hooksDirectory) !== hooksDirectory) throw new Error('Context mode lock directory rejected.');
+    lockPath = join(hooksDirectory, '.codex-context-policy-install.lock'); lock = await open(lockPath, 'wx', 0o600);
+    const path = join(directory, 'codex-context-policy.json');
+    if (await realpath(path) !== path) throw new Error('Context mode policy path rejected.');
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size > 32000 || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0)
+      throw new Error('Context mode policy must be a bounded private file.');
+    const buffer = Buffer.alloc(32001); const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > 32000) throw new Error('Context mode policy exceeds limit.');
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, bytesRead));
+    await file.close(); file = null; const config = parseInstallObject(text, null);
+    const { readContextPolicyConfig } = await import('../src/codex-context-policy.mjs');
+    const current = await readContextPolicyConfig(root);
+    if (['mode', 'jev_enabled', 'jev_model', 'jev_actual_model'].some(key => current[key] !== config[key]) ||
+        !isDeepStrictEqual(current.operations, config.operations ?? {}) ||
+        !isDeepStrictEqual(current.promotions ?? {}, config.promotions ?? {})) throw new Error('Context mode policy rejected.');
+    if (config.mode !== mode) {
+      await applyContextInstallChange({ path, before: { text, mode: stat.mode & 0o777 }, after: encodeInstallJson({ ...config, mode }) });
+      result.changed = true;
+    }
+  } catch (error) {
+    result.error = error.code === 'EEXIST' ? 'Context mode installation is busy: ' + lockPath :
+      error instanceof SyntaxError ? 'Context mode malformed policy rejected; configuration preserved.' :
+        error.code ? 'Context mode private file or lock unavailable; configuration preserved.' : error.message;
+  } finally {
+    await file?.close().catch(() => {});
+    if (lock) {
+      try { await lock.close(); }
+      catch { result.error = [result.error, 'Context mode lock close failed: ' + lockPath].filter(Boolean).join(' '); }
+      try { await unlink(lockPath); }
+      catch (error) { if (error.code !== 'ENOENT') result.error = [result.error, 'Context mode lock release failed: ' + lockPath].filter(Boolean).join(' '); }
+    }
+  }
+  return result;
+}
+
 const installEntryPath = process.argv[1] ? await realpath(process.argv[1]).catch(() => null) : null;
 if (installEntryPath && import.meta.url === pathToFileURL(installEntryPath).href) {
   const args = process.argv.slice(2);
   const action = args.shift();
   const options = { action, apply: false };
+  if (action === 'mode') options.mode = args.shift();
   let configureJev = false;
   let valid = true;
   while (args.length) {
@@ -385,7 +438,11 @@ if (installEntryPath && import.meta.url === pathToFileURL(installEntryPath).href
     }
     else valid = false;
   }
-  if (action === 'promote' && valid && options.repo_root && options.report_path && options.family && options.variant &&
+  if (action === 'mode' && valid && options.repo_root && !options.source_root && !options.report_path &&
+      !options.family && !options.variant && !options.apply && !configureJev) {
+    const result = await setContextPolicyMode(options.repo_root, options.mode);
+    process.stdout.write(encodeInstallJson(result)); process.exitCode = result.error ? 1 : 0;
+  } else if (action === 'promote' && valid && options.repo_root && options.report_path && options.family && options.variant &&
       !options.source_root && !configureJev) {
     const result = await promoteContextPolicy(options);
     process.stdout.write(encodeInstallJson(result)); process.exitCode = result.error ? 1 : 0;
