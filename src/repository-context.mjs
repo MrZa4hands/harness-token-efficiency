@@ -1,4 +1,4 @@
-import { captureRepositorySnapshot } from './context-state.mjs';
+import { captureRepositorySnapshot, readContextTask } from './context-state.mjs';
 import { createHash } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
 import { constants } from 'node:fs';
@@ -106,6 +106,8 @@ async function rawRepositoryDiff(before, after, signal) {
 export async function getRepositoryChanges(request) {
   const signal = request.signal ?? AbortSignal.timeout(2000);
   try {
+    const executionTask = request.execution_task ?? (request.state_dir && request.session_id
+      ? await readContextTask(request.state_dir, request.repo_root, request.session_id) : null);
     if (!/^[a-f0-9]{64}$/.test(request.request_hash) || !/^[a-f0-9]{64}$/.test(request.repo_revision) ||
         typeof request.context_epoch !== 'string' || !request.context_epoch ||
         !['worktree', 'range'].includes(request.scope?.kind)) throw new Error('Repository context change request rejected.');
@@ -152,7 +154,8 @@ export async function getRepositoryChanges(request) {
     const bundle = { status: 'ok', request_hash: request.request_hash, repo_revision: request.repo_revision,
       context_epoch: request.context_epoch, scope: request.scope, entries, coverage_status: 'complete', omissions: [],
       omitted_count: 0, next_cursor: null, full_result: null, exit_code: 0, stderr: '' };
-    signal.throwIfAborted(); return await storeContextResult(bundle, { ...request, byte_limit: request.byte_limit ?? 8000 });
+    signal.throwIfAborted(); return await storeContextResult(bundle, { ...request, execution_task: executionTask,
+      byte_limit: request.byte_limit ?? 8000 });
   } catch (error) { return repositoryContextError(request, error); }
 }
 
@@ -246,6 +249,8 @@ export async function selectCodeContext(request) {
   const signal = request.signal ?? AbortSignal.timeout(2000); const started = Date.now();
   const checkDeadline = () => { signal.throwIfAborted(); if (Date.now() - started > 2000) throw new Error('Repository context deadline exceeded.'); };
   try {
+    const executionTask = request.execution_task ?? (request.state_dir && request.session_id
+      ? await readContextTask(request.state_dir, request.repo_root, request.session_id) : null);
     if (!['code_context', 'code_review_context', 'documentation_context'].includes(request.family) || !['worktree', 'range'].includes(request.scope?.kind) ||
         !/^[a-f0-9]{64}$/.test(request.request_hash) || !/^[a-f0-9]{64}$/.test(request.repo_revision) ||
         typeof request.context_epoch !== 'string' || !request.context_epoch || !Array.isArray(request.paths) ||
@@ -317,6 +322,6 @@ export async function selectCodeContext(request) {
     const finalFiles = new Map(final.files.map(file => [file.path, file.sha256]));
     if (final.repo_revision !== snapshot.repo_revision || (request.scope.kind === 'worktree' && entries.some(entry => finalFiles.get(entry.path) !== entry.sha256)))
       throw new Error('Repository context revision changed.');
-    checkDeadline(); return await storeContextResult(bundle, request);
+    checkDeadline(); return await storeContextResult(bundle, { ...request, execution_task: executionTask });
   } catch (error) { return repositoryContextError(request, error); }
 }

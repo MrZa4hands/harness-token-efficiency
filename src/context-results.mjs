@@ -1,17 +1,18 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { open, realpath, lstat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { open, realpath, lstat, link, unlink } from 'node:fs/promises';
+import { join, resolve, dirname } from 'node:path';
 import { captureRepositorySnapshot, readContextTask } from './context-state.mjs';
+import { pruneExpiredContextResult, pruneExpiredContextResults } from './context-result-expiry.mjs';
 
 const resultHash = text => createHash('sha256').update(text).digest('hex');
 const resultPath = (request, root, reference) => join(resolve(request.state_dir), resultHash(root),
   resultHash(request.session_id), 'result-' + reference + '.json');
 const responseBytes = response => Buffer.byteLength(JSON.stringify(response));
-const resultTaskBinding = task => resultHash(JSON.stringify(Object.fromEntries([
+const resultTaskBinding = (task, checkOutput = false) => resultHash(JSON.stringify(Object.fromEntries([
   'session_id', 'turn_id', 'request_hash', 'context_epoch', 'repo_revision', 'inventory_hash',
   'corpus_hash', 'permissions_hash', 'versions', 'expected_jev_model', 'protected_requirements',
-].map(key => [key, task[key]]))));
+].filter(key => !checkOutput || !['repo_revision', 'inventory_hash', 'corpus_hash'].includes(key)).map(key => [key, task[key]]))));
 
 /** Reuse delivered context only with explicit current availability; native preparation never supplies a receipt. */
 export function reuseContextDelivery(bundle, receipt, state) {
@@ -36,7 +37,8 @@ function resultCursor(reference, index, whole = false) {
   return reference + (whole ? ':whole:' : ':page:') + index;
 }
 
-function pageContextResult(bundle, reference, cursor, byteLimit) {
+/** Render whole-unit result pages without cutting private evidence; check previews yield to recovery metadata. */
+export function pageContextResult(bundle, reference, cursor, byteLimit) {
   if (!Number.isSafeInteger(byteLimit) || byteLimit < 1) throw new Error('Context result byte limit rejected.');
   let index = 0; let whole = false;
   if (cursor !== undefined && cursor !== null) {
@@ -51,14 +53,30 @@ function pageContextResult(bundle, reference, cursor, byteLimit) {
     // Explicit whole-unit recovery may exceed the routine page budget; it never cuts protected evidence.
     return { ...page, entries: [bundle.entries[index]], omitted_count: 0, retrieval: 'whole-unit' };
   }
+  const entryOmissions = bundle.entries.map((entry, position) => ({ path: entry.path, sha256: entry.sha256,
+    reason: entry.encoding?.startsWith('base64') ? 'binary-separate-retrieval' : 'whole-unit-exceeds-page',
+    byte_count: responseBytes(entry), cursor: resultCursor(reference, position, true) }));
+  if (bundle.kind === 'project-check') {
+    const fitsMetadata = () => entryOmissions.every((omission, position) => responseBytes({ ...page,
+      omissions: [omission], next_cursor: resultCursor(reference, position) }) <= byteLimit);
+    for (const key of ['stdout', 'stderr', 'error'].sort((left, right) =>
+      responseBytes(page[right] ?? '') - responseBytes(page[left] ?? ''))) {
+      if (fitsMetadata()) break;
+      if (key !== 'error' && typeof page[key] === 'string') {
+        const lines = page[key].match(/[^\n]*\n|[^\n]+$/g) ?? [];
+        while (lines.length > 1 && !fitsMetadata()) { lines.pop(); page[key] = lines.join(''); }
+      }
+      if (fitsMetadata()) break;
+      if (page[key]) page[key] = 'Full output available through full_result.';
+    }
+  }
   while (index < bundle.entries.length) {
     const entry = bundle.entries[index];
     const candidate = { ...page, entries: [...page.entries, entry], omitted_count: bundle.entries.length - index - 1,
       next_cursor: index + 1 < bundle.entries.length ? resultCursor(reference, index + 1) : null };
     if (!entry.encoding?.startsWith('base64') && responseBytes(candidate) <= byteLimit) { Object.assign(page, candidate); index++; continue; }
     if (page.entries.length || page.omissions.length) break;
-    const omission = { path: entry.path, sha256: entry.sha256, reason: entry.encoding?.startsWith('base64') ? 'binary-separate-retrieval' : 'whole-unit-exceeds-page',
-      byte_count: responseBytes(entry), cursor: resultCursor(reference, index, true) };
+    const omission = entryOmissions[index];
     const inventory = { ...page, omissions: [omission], next_cursor: index + 1 < bundle.entries.length
       ? resultCursor(reference, index + 1) : null };
     if (responseBytes(inventory) > byteLimit) throw new Error('Context result budget cannot hold retrieval metadata.');
@@ -72,9 +90,12 @@ function pageContextResult(bundle, reference, cursor, byteLimit) {
 
 async function currentResultTask(request, root, bundle) {
   const task = await readContextTask(request.state_dir, root, request.session_id);
-  if (!task || task.history_gap || task.repo_revision !== bundle.repo_revision ||
+  if (!task || task.history_gap || bundle.kind !== 'project-check' && task.repo_revision !== bundle.repo_revision ||
       task.request_hash !== bundle.request_hash || task.context_epoch !== bundle.context_epoch)
     throw new Error('Context result task binding rejected.');
+  if (Object.hasOwn(request, 'execution_task') && (!request.execution_task ||
+      resultTaskBinding(request.execution_task, bundle.kind === 'project-check') !== resultTaskBinding(task, bundle.kind === 'project-check')))
+    throw new Error('Context result execution binding rejected.');
   return task;
 }
 
@@ -109,23 +130,36 @@ export async function storeContextResult(bundle, request) {
   const root = await realpath(request.repo_root);
   const task = await currentResultTask(request, root, bundle);
   const artifact = { schema_version: 2, repo_root: root, session_id: request.session_id,
-    created_at: task.updated_at, binding_hash: resultTaskBinding(task), bundle };
+    created_at: (request.execution_task ?? task).updated_at, binding_hash: resultTaskBinding(task, bundle.kind === 'project-check'), bundle };
   const text = JSON.stringify(artifact);
   if (Buffer.byteLength(text) > 70_000_000) throw new Error('Context result storage limit exceeded.');
   const reference = resultHash(text); const path = resultPath(request, root, reference);
-  let file;
-  try { file = await open(path, 'wx', 0o600); await file.writeFile(text); await file.sync(); }
+  try {
+    if (await readPrivateContextResult(path, reference, request.signal ?? AbortSignal.timeout(2000)) !== text)
+      throw new Error('Context result existing artifact rejected.');
+    return pageContextResult(bundle, reference, request.cursor, request.byte_limit ?? 6000);
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const temporary = join(dirname(path), '.result-' + randomUUID() + '.tmp');
+  let file; let temporaryOwned = false;
+  try {
+    file = await open(temporary, 'wx', 0o600); temporaryOwned = true;
+    await file.writeFile(text); await file.sync(); await file.close(); file = null;
+    await link(temporary, path);
+  }
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
     // The producer already captured repository evidence; validate existing exact bytes without a second repository read.
     if (await readPrivateContextResult(path, reference, request.signal ?? AbortSignal.timeout(2000)) !== text)
       throw new Error('Context result existing artifact rejected.');
   }
-  finally { await file?.close(); }
+  finally {
+    await file?.close();
+    if (temporaryOwned) await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  }
   return pageContextResult(bundle, reference, request.cursor, request.byte_limit ?? 6000);
 }
 
-/** Read private context results only for their current repository, session, revision and task epoch.
+/** Read current code evidence or historical check output bound to its original execution task identity.
  * @param {{repo_root:string,state_dir:string,session_id:string,reference:string,cursor?:string,
  * byte_limit?:number,signal?:AbortSignal}} request
  * @returns {Promise<object>} */
@@ -139,6 +173,9 @@ export async function readContext(request) {
     if (!await readContextTask(request.state_dir, root, request.session_id)) throw new Error('Context result session unavailable.');
     const text = await readPrivateContextResult(resultPath(request, root, request.reference), request.reference, signal);
     const artifact = JSON.parse(text); const bundle = artifact.bundle;
+    if (request.expire_results !== false && Date.parse(artifact.created_at) < Date.now() - 7 * 86400000)
+      await pruneExpiredContextResult(resultPath(request, root, request.reference), resultHash(root),
+        resultHash(request.session_id), AbortSignal.timeout(500), 70_000_000);
     if (artifact.schema_version !== 2 || artifact.repo_root !== root || artifact.session_id !== request.session_id ||
         !Number.isFinite(Date.parse(artifact.created_at)) || Date.parse(artifact.created_at) < Date.now() - 7 * 86400000 ||
         Date.parse(artifact.created_at) > Date.now() || !bundle ||
@@ -151,16 +188,20 @@ export async function readContext(request) {
         resultHash(entry.encoding === 'base64' ? Buffer.from(entry.content, 'base64') : entry.content) === entry.sha256))
       throw new Error('Context result check output rejected.');
     const paths = checkOutput ? [] : bundle.entries.filter(entry => entry.kind !== 'change' && entry.source !== 'git-blob').map(entry => entry.path);
-    const snapshot = await captureRepositorySnapshot(root, signal, paths);
-    const currentHashes = new Map(snapshot.files.map(file => [file.path, file.sha256]));
-    if (snapshot.repo_revision !== bundle.repo_revision || !checkOutput && bundle.entries.some(entry => entry.kind === 'change'
+    // Check logs describe their original execution, rather than asserting current repository contents.
+    const snapshot = checkOutput ? null : await captureRepositorySnapshot(root, signal, paths);
+    const currentHashes = new Map(snapshot?.files.map(file => [file.path, file.sha256]));
+    if (!checkOutput && (snapshot.repo_revision !== bundle.repo_revision || bundle.entries.some(entry => entry.kind === 'change'
       ? (entry.source_sha256 !== null && currentHashes.get(entry.path) !== entry.source_sha256)
-      : entry.source !== 'git-blob' && currentHashes.get(entry.path) !== entry.sha256))
+      : entry.source !== 'git-blob' && currentHashes.get(entry.path) !== entry.sha256)))
       throw new Error('Repository context revision changed.');
     const task = await currentResultTask(request, root, bundle);
-    if (artifact.binding_hash !== resultTaskBinding(task)) throw new Error('Context result freshness binding rejected.');
+    if (artifact.binding_hash !== resultTaskBinding(task, checkOutput)) throw new Error('Context result freshness binding rejected.');
     signal.throwIfAborted();
-    return pageContextResult(bundle, request.reference, request.cursor, request.byte_limit ?? 8000);
+    const page = pageContextResult(bundle, request.reference, request.cursor, request.byte_limit ?? 8000);
+    if (request.expire_results !== false) await pruneExpiredContextResults(
+      dirname(resultPath(request, root, request.reference)), root, request.session_id, AbortSignal.timeout(500));
+    return page;
   } catch (error) {
     return contextResultError(request, Object.assign(new Error(error instanceof SyntaxError ? 'Context result malformed private data rejected.'
       : error.code ? 'Context result unavailable.' : error.message), { cause: error }));

@@ -27,7 +27,7 @@ export async function prepareCodexContext(state, decision, versions, options = {
       paths.push(...state.inventory.filter(path => basename(path).toLowerCase() === 'readme.md' || path.startsWith('docs/') && /\.md$/i.test(path)));
     if (decision.operation === 'code_context' && !paths.length && !facts.literal_symbols.length) return null;
     const request = { repo_root: state.repo_root, state_dir: options.state_dir ?? join(homedir(), '.codex/codex-context-policy'),
-      session_id: state.session_id, request_hash: state.request_hash, repo_revision: state.repo_revision,
+      session_id: state.session_id, execution_task: state, request_hash: state.request_hash, repo_revision: state.repo_revision,
       context_epoch: state.context_epoch, scope: { kind: 'worktree' }, signal };
     const operations = [];
     const byteLimit = decision.operation === 'code_review_context' ? 2200 : 4200;
@@ -43,7 +43,8 @@ export async function prepareCodexContext(state, decision, versions, options = {
           if (!paths.includes(entry.path)) paths.push(entry.path);
         }
         if (!page.next_cursor) break;
-        page = await readContext({ ...request, reference: changes.full_result, cursor: page.next_cursor, byte_limit: byteLimit });
+        page = await readContext({ ...request, expire_results: false, reference: changes.full_result,
+          cursor: page.next_cursor, byte_limit: byteLimit });
       }
     }
     signal.throwIfAborted();

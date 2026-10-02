@@ -6,6 +6,7 @@ import { realpath, lstat, mkdir, open, rename, unlink, opendir, readlink } from 
 import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
 import jevQuestions from '../config/jev-questions.json' with { type: 'json' };
 import { validateJevContextResponse } from './jev-client.mjs';
+import { pruneExpiredContextResult } from './context-result-expiry.mjs';
 
 /** @typedef {{session_id:string,turn_id:string,repo_root:string,repo_revision:string,repo_head?:string|null,inventory:string[],
  * request_hash:string,recent_requests:{text:string,hash:string}[],protected_requirements:string[],
@@ -392,18 +393,16 @@ export async function recordContextDecision(stateDir, state, decision, signal) {
       if (cleanupSignal.aborted) break;
       const name = entry.name;
       const result = /^result-([a-f0-9]{64})\.json$/.exec(name);
-      if (!result && !/^decision-[a-f0-9-]{36}\.json$/.test(name)) continue;
+      const temporaryResult = /^\.result-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.tmp$/.test(name);
+      if (!result && !temporaryResult && !/^decision-[a-f0-9-]{36}\.json$/.test(name)) continue;
       const path = join(directory, name);
-      let old; let text;
-      try { text = await readPrivateContextFile(path, result ? 70_000_000 : 1_000_000, cleanupSignal); old = JSON.parse(text); } catch { continue; }
-      if (cleanupSignal.aborted) break;
-      if (result) {
-        if ([1, 2].includes(old?.schema_version) && contextHash(text) === result[1] &&
-            contextHash(old.repo_root) === metadata.repo_hash && contextHash(old.session_id) === sessionHash &&
-            Date.parse(old.created_at) < Date.now() - 7 * 86400000)
-          await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      if (result || temporaryResult) {
+        await pruneExpiredContextResult(path, metadata.repo_hash, sessionHash, cleanupSignal);
         continue;
       }
+      let old; let text;
+      try { text = await readPrivateContextFile(path, 1_000_000, cleanupSignal); old = JSON.parse(text); } catch { continue; }
+      if (cleanupSignal.aborted) break;
       if (old && old.schema_version === 1 && old.session_hash === sessionHash && old.repo_hash === metadata.repo_hash &&
           Date.parse(old.updated_at) < Date.now() - 7 * 86400000) await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
     }
