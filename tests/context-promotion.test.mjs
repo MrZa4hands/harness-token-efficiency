@@ -54,9 +54,36 @@ test('paired_report_preserves_repeats_and_unmeasured_families', () => {
   assert.equal(unmeasured.sample_size, 0); assert.equal(unmeasured.median_token_reduction, null); assert.ok(unmeasured.limitations.length);
   second[1].quality.correct = false;
   assert.ok(!comparePilotRuns([...first, ...second]).promotions.some(row => row.variant === 'deterministic'), 'Failed repeat remains disqualifying');
+  const partial = comparePilotRuns([...first, ...second.slice(0, 9)]);
+  const partialFamily = partial.families.find(row => row.family === 'code_context' && row.variant === 'deterministic');
+  assert.equal(partial.runs.length, 189);
+  assert.equal(partialFamily.sample_size, 63, 'Three observed repeat pairs remain in descriptive sample counts');
+  assert.ok(partialFamily.failed_task_ids.includes(second[1].task_id), 'Failed partial-repeat pairs remain reported');
+  assert.ok(partialFamily.excluded_task_ids?.includes(second[1].task_id), 'Unusable token comparisons name their task');
+  assert.equal(partial.promotions.length, 0, 'Descriptive partial-repeat statistics cannot qualify an incomplete cohort');
+  assert.equal(comparePilotRuns([...first, ...second.slice(1, 9)]).promotions.length, 0,
+    'A missing baseline inside the partial cohort must abstain without throwing');
+  const missingBaseline = comparePilotRuns([...first, ...second.slice(1, 9)]);
+  assert.ok(missingBaseline.incomplete_task_ids?.includes(second[0].task_id), 'Unpaired omissions name their task');
+  const unknownUsage = structuredClone(first); unknownUsage[1].codex_usage.available = false;
+  assert.ok(comparePilotRuns(unknownUsage).families.find(row => row.family === 'code_context' && row.variant === 'deterministic')
+    .excluded_task_ids?.includes(unknownUsage[1].task_id), 'Unknown billing is an identified exclusion, never a silent zero');
   assert.equal(comparePilotRuns([...first, ...second.slice(1)]).promotions.length, 0, 'Incomplete repeat cannot be hidden');
   const duplicate = structuredClone(second); duplicate[0].run_id = first[0].run_id;
   assert.equal(comparePilotRuns([...first, ...duplicate]).promotions.length, 0, 'Run identities remain globally unique');
+  for (const invalid of [
+    { ...first[0], run_id: 'invalid-duration', duration_ms: null },
+    { ...first[0], run_id: 'duplicate-variant' },
+    { ...first[0], run_id: 'invalid-experiment', experiment_id: 'invalid experiment' },
+  ]) {
+    const rows = [...first, invalid]; const rejected = comparePilotRuns(rows);
+    assert.equal(rejected.runs.length, 181, 'Rejected rows remain in the raw campaign');
+    assert.ok(rejected.invalid_run_ids?.includes(invalid.run_id), 'Identity failures name their run');
+    assert.ok(rejected.invalid_row_indexes?.includes(180), 'Identity failures identify the original raw row');
+    assert.equal(rejected.families.find(row => row.family === 'code_context' && row.variant === 'deterministic')?.sample_size, 60,
+      'Invalid additional rows cannot erase valid paired descriptions');
+    assert.equal(rejected.promotions.length, 0, 'Any invalid row blocks qualification of the complete campaign');
+  }
 });
 
 // Exact permitted latency boundaries must qualify independently of the owner's percentile implementation.
@@ -205,6 +232,18 @@ test('promotion_cli_persists_only_qualified_current_reports', async () => {
   const before = await readFile(configPath, 'utf8');
   const preview = invoke(false); assert.equal(preview.status, 0, 'Qualified promotion must have a dry-run: ' + preview.stderr);
   assert.equal(await readFile(configPath, 'utf8'), before, 'Dry-run cannot change policy');
+  const largeRuns = ['primary', 'repeat'].flatMap(experiment_id => runs.map(row => ({ ...row, experiment_id,
+    run_id: experiment_id + '-' + row.run_id, assessment: 'x'.repeat(5000) })));
+  const largeInput = JSON.stringify({ report_version: 1, corpus_hash: report.corpus_hash, runs: largeRuns });
+  assert.ok(Buffer.byteLength(largeInput) < 4_000_000, 'The supplied report fits the admitted read boundary');
+  assert.ok(Buffer.byteLength(JSON.stringify(comparePilotRuns(largeRuns), null, 2) + '\n') > 4_000_000,
+    'Canonical repeated evidence expands beyond the runtime report read boundary');
+  await writeFile(reportPath, largeInput);
+  const oversized = invoke(true); assert.equal(oversized.status, 1, 'Unreadable canonical reports cannot persist promotion');
+  assert.equal(JSON.parse(oversized.stdout).changed, false);
+  assert.equal(await readFile(configPath, 'utf8'), before, 'Canonical size rejection must preserve policy');
+  await assert.rejects(lstat(join(directory, 'codex-context-promotion-code_context-deterministic.json')), { code: 'ENOENT' });
+  await writeFile(reportPath, JSON.stringify(report));
   const applied = invoke(true); assert.equal(applied.status, 0, applied.stderr + applied.stdout);
   const updated = JSON.parse(await readFile(configPath, 'utf8'));
   assert.equal(updated.mode, 'shadow', 'Qualification cannot raise the global mode cap');

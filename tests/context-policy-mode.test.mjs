@@ -37,6 +37,9 @@ test('mode_cli_changes_only_mode_and_off_is_immediate', async () => {
   for (const [mode, extra] of [['bad', []], ['off', ['--configure-jev']], ['off', ['--source', resolve('.')]]]) {
     assert.equal(invoke(root, mode, extra).status, 1); assert.equal(await readFile(path, 'utf8'), final);
   }
+  const missingRoot = spawnSync(process.execPath, [manager, 'mode', 'off'], { encoding: 'utf8', timeout: 3000 });
+  assert.equal(missingRoot.status, 1);
+  assert.match(missingRoot.stderr, /mode off\|shadow\|enforce --repo PATH;/, 'Immediate mode command must omit unsupported apply syntax');
   const result = await updateContextPolicyInstall({ repo_root: root, source_root: resolve('.'), action: 'remove', apply: true });
   assert.equal(result.error, null); assert.deepEqual(JSON.parse(await readFile(hooks, 'utf8')), foreign);
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { ...policy, mode: 'off' }, 'Modified policy survives owned removal');

@@ -1,6 +1,7 @@
 import { realpath, lstat, mkdir, readFile, open, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { resolveContextHooksRoot } from './context-install-lock.mjs';
 
 const jevLabels = ['code_context', 'code_review_context', 'documentation_context', 'baseline'];
 const jevQuestionNames = ['continues_active_goal', 'needs_repository_context', 'needs_change_context',
@@ -159,7 +160,14 @@ export async function configureJevModel(repoRoot, options = {}) {
     await mkdir(directory, { mode: 0o700 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
     const directoryStat = await lstat(directory);
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink() || await realpath(directory) !== directory) return abstain('unsafe-configuration');
-    lockPath = join(directory, '.jev-setup.lock');
+    const metadata = await lstat(join(root, '.git')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (metadata?.isSymbolicLink()) return abstain('unsafe-configuration');
+    const hooksRoot = metadata?.isFile() ? await realpath(resolveContextHooksRoot(root)) : root;
+    const hooksDirectory = join(hooksRoot, '.codex');
+    await mkdir(hooksDirectory, { mode: 0o700 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
+    const hooksStat = await lstat(hooksDirectory);
+    if (!hooksStat.isDirectory() || hooksStat.isSymbolicLink() || await realpath(hooksDirectory) !== hooksDirectory) return abstain('unsafe-configuration');
+    lockPath = join(hooksDirectory, '.codex-context-policy-install.lock');
     try { lock = await open(lockPath, 'wx', 0o600); } catch (error) { if (error.code === 'EEXIST') return abstain('configuration-conflict'); throw error; }
     const path = join(directory, 'codex-context-policy.json');
     const stat = await lstat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
@@ -170,9 +178,11 @@ export async function configureJevModel(repoRoot, options = {}) {
         (config.operations !== undefined && (!config.operations || typeof config.operations !== 'object' || Array.isArray(config.operations) ||
           Object.values(config.operations).some(value => !['off', 'shadow', 'enforce'].includes(value))))) return abstain('invalid-configuration');
     if (config.jev_model !== model) delete config.jev_actual_model;
+    const policyText = JSON.stringify({ ...config, jev_model: model }, null, 2) + '\n';
+    if (Buffer.byteLength(policyText) > 32000) return abstain('unsafe-configuration');
     const temporaryPath = join(directory, '.jev-setup-' + randomUUID() + '.tmp');
     const file = await open(temporaryPath, 'wx', 0o600); temporary = temporaryPath;
-    try { await file.writeFile(JSON.stringify({ ...config, jev_model: model }, null, 2) + '\n'); await file.sync(); }
+    try { await file.writeFile(policyText); await file.sync(); }
     finally { await file.close(); }
     const current = await lstat(path).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     if ((current && (!current.isFile() || current.isSymbolicLink())) ||

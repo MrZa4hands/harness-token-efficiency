@@ -181,7 +181,7 @@ export async function captureRepositorySnapshot(repoRoot, signal = AbortSignal.t
     if (installation && !index.includes('\t' + path + '\0') &&
         (['.codex/hooks.json', '.codex/codex-context-policy.json', '.codex/codex-context-policy-install.json',
           '.codex/codex-context-policy-coverage.json'].includes(path) ||
-        /^\.codex\/codex-context-promotion-(?:code_context|code_review_context|documentation_context)-(?:deterministic|hybrid)\.json$/.test(path))) {
+        /^\.codex\/codex-context-promotion-(?:code_context|code_review_context|documentation_context|get_repository_changes|read_context|run_project_checks|rewrite_simple_command)-(?:deterministic|hybrid)\.json$/.test(path))) {
       // Keep private runtime out of automatic evidence; unignored reviews abstain, explicit reads stay available.
       baseInventory.delete(path);
       if (!explicitPaths.includes(path)) {

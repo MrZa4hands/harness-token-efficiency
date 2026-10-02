@@ -7,11 +7,13 @@ import { resolveContextFacts } from './context-state.mjs';
  * @param {import('./context-state.mjs').TaskState} state
  * @param {{action:string,operation:string,source:string,versions:object,fallback_reason:string|null}} decision
  * @param {object} versions
- * @param {{state_dir?:string,signal?:AbortSignal}} [options]
+ * @param {{state_dir?:string,signal?:AbortSignal,operations?:Record<string,string>}} [options]
  * @returns {Promise<object|null>} */
 export async function prepareCodexContext(state, decision, versions, options = {}) {
   if (decision.action !== 'prefetch' || !['code_context', 'code_review_context', 'documentation_context'].includes(decision.operation) ||
       state.history_gap || JSON.stringify(state.versions) !== JSON.stringify(versions) ||
+      options.operations?.[decision.operation] === 'off' ||
+      (decision.operation === 'code_review_context' && options.operations?.get_repository_changes === 'off') ||
       ['contradictory-classification', 'invalid-response', 'uncertain-classification'].includes(decision.fallback_reason)) return null;
   // ponytail: automatic review covers the whole worktree; scoped reviews abstain until scope parsing is verified.
   const requests = [state.active_request?.text, ...state.recent_requests.map(request => request.text)].join('\n');
@@ -43,6 +45,7 @@ export async function prepareCodexContext(state, decision, versions, options = {
           if (!paths.includes(entry.path)) paths.push(entry.path);
         }
         if (!page.next_cursor) break;
+        if (options.operations?.read_context === 'off') return null;
         page = await readContext({ ...request, expire_results: false, reference: changes.full_result,
           cursor: page.next_cursor, byte_limit: byteLimit });
       }
