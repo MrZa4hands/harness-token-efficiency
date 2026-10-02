@@ -61,7 +61,7 @@ export async function readContextSourceVersions(sourceRoot, { input, config, que
   const clientVersion = input.client_version ?? native.client_version;
   const effort = input.reasoning_effort ?? native.reasoning_effort;
   const sources = await Promise.all(['codex-context-policy.mjs', 'context-state.mjs', 'jev-client.mjs', 'context-credentials.mjs',
-    'repository-context.mjs', 'context-results.mjs', 'context-prefetch.mjs', 'context-promotion.mjs', 'project-checks.mjs']
+    'repository-context.mjs', 'context-results.mjs', 'context-result-expiry.mjs', 'context-prefetch.mjs', 'context-promotion.mjs', 'project-checks.mjs']
     .map(path => readFile(join(sourceRoot, 'src', path), { encoding: 'utf8', signal })));
   return { client_version: ['0.159.2', '0.159.3'].includes(clientVersion) ? clientVersion : 'unverified',
     main_model: typeof input.model === 'string' && /^[A-Za-z0-9._:/-]{1,128}$/.test(input.model) ? input.model : 'unverified',
@@ -290,27 +290,38 @@ if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) 
       const operations = await import('./repository-context.mjs');
       if (process.argv[2] === 'run_project_checks') {
         const { runProjectChecks } = await import('./project-checks.mjs');
-        result = await runProjectChecks(request);
+        const controller = new AbortController();
+        const handlers = ['SIGINT', 'SIGTERM', ...(process.platform === 'win32' ? [] : ['SIGHUP', 'SIGQUIT'])].map(name => [name,
+          () => controller.abort(new Error('Project checks cancelled by ' + name + '.'))]);
+        for (const [name, handler] of handlers) process.on(name, handler);
+        try { result = await runProjectChecks({ ...request, signal: controller.signal }); }
+        finally { for (const [name, handler] of handlers) process.removeListener(name, handler); }
       } else if (process.argv[2] === 'read_context') result = await operations.readContext(request);
       else {
         const { readContextTask } = await import('./context-state.mjs');
         const task = await readContextTask(request.state_dir, request.repo_root, request.session_id);
         if (!task || task.history_gap) throw new Error('Context CLI current task unavailable.');
         const operation = process.argv[2] === 'select_code_context' ? operations.selectCodeContext : operations.getRepositoryChanges;
-        result = await operation({ ...request, request_hash: task.request_hash, repo_revision: task.repo_revision,
+        result = await operation({ ...request, execution_task: task, request_hash: task.request_hash, repo_revision: task.repo_revision,
           context_epoch: task.context_epoch, byte_limit: request.byte_limit ?? 8000 });
       }
-    } catch {
+    } catch (error) {
       result = { status: 'error', entries: [], coverage_status: 'partial', omissions: [], omitted_count: 0,
-        next_cursor: null, full_result: null, exit_code: 1, stderr: 'Context CLI request rejected; current private task required.' };
+        next_cursor: null, full_result: null, exit_code: 1, stderr: process.argv[2] === 'run_project_checks' &&
+          /^(?:Project checks|Context inventory) [A-Za-z0-9 ;./-]{1,240}$/.test(error.message) ? error.message :
+          'Context CLI request rejected; check repository and private task.' };
     }
     process.stdout.write(JSON.stringify(result) + '\n');
     const outputs = Array.isArray(result) ? result : [result];
     for (const output of outputs) if (output.stderr) process.stderr.write(output.stderr + '\n');
-    process.exitCode = outputs.find(output => output.exit_code !== 0)?.exit_code ?? 0;
+    process.exitCode = outputs.find(output => output.exit_code !== 0)?.exit_code ??
+      (outputs.some(output => output.status !== 'ok') ? 1 : 0);
   } else if (process.argv[2] !== 'hook') {
-    process.stderr.write('Context policy CLI: expected operation hook or setup-jev.\n');
-    process.exitCode = 1;
+    const usage = 'Context policy CLI: expected operation hook | setup-jev --repo <path> [--model <name>] | ' +
+      'select_code_context | get_repository_changes | read_context | run_project_checks\n' +
+      'Context operations accept one JSON request on stdin.\n';
+    if (process.argv[2] === '--help') process.stdout.write(usage);
+    else { process.stderr.write(usage); process.exitCode = 1; }
   } else {
     try {
       const result = await handleCodexHook(await readContextCliInput(), await realpath(new URL('../', import.meta.url)));
