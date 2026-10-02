@@ -4,7 +4,7 @@ read_when: Before installing, trusting, configuring, or removing the context pol
 
 # Usage and Configuration
 
-Phases 0–3 establish compatibility, measurement, isolated decisions, exact expandable context and explicitly requested declared checks. Off is inert; shadow and unpromoted enforce prepare privately without injecting evidence, rewriting commands or running checks automatically. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after its negative calibration result.
+Phases 0–4 establish compatibility, measurement, isolated decisions, exact expandable context, explicitly requested declared checks, seven-family qualification and immediate mode control. Off is inert; shadow and unpromoted enforce prepare privately without injecting evidence, rewriting commands or running checks automatically. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after negative calibration and nonqualifying paired results.
 
 ## Install and Trust
 
@@ -45,7 +45,7 @@ The manager pins absolute real paths for Node and source. Source movement or Nod
 | `.codex/codex-context-policy.json` at the target | Policy read on each call. |
 | `.codex/codex-context-policy-coverage.json` at the target | Explicitly verified registration eligibility. |
 | `.codex/codex-context-policy-install.json` at the target | Version-1 ownership receipt, canonical roots, original source alias, and created policy text. |
-| `.codex/.codex-context-policy-install.lock` at the hook root | Exclusive shared installation lock. |
+| `.codex/.codex-context-policy-install.lock` at the hook root | Exclusive lock shared by installation, removal, promotion, mode changes and Jev policy setup. |
 
 New directories use `0700`; new files use `0600`. Existing file modes are retained even under restrictive umasks. Runtime files are excluded from Git. Preserve the receipt while the installation exists.
 
@@ -55,7 +55,28 @@ Initial policy:
 {"mode":"off","jev_enabled":true}
 ```
 
-Modes are `off`, `shadow`, and `enforce`. `operations` is an optional object whose values use those modes; absent operations normalize to `{}` and remain observational. Missing, invalid, external, nonregular or nonprivate policy reads as `off`. Context families are `code_context`, `code_review_context`, and `documentation_context`; both global and family mode must be enforce and current measured proof must qualify before output. The `promote` command is available; a mode-management command remains a later-phase task. No actual family is promoted.
+Modes are `off`, `shadow`, and `enforce`. `operations` is an optional object whose values use those modes; absent operations normalize to `{}` and remain observational. Missing, invalid, external, nonregular, nonprivate or oversized policy reads as `off`. Policy reads and canonical writes are limited to 32,000 UTF-8 bytes. Both global and selected context-family mode must be enforce and current measured proof must qualify before output. No actual family is promoted.
+
+| Qualification family | Current consumer |
+|---|---|
+| `code_context` | Automatic code preparation. |
+| `code_review_context` | Automatic whole-worktree review preparation. |
+| `documentation_context` | Automatic documentation preparation. |
+| `get_repository_changes` | Explicit operation; qualification alone adds no automatic consumer. |
+| `read_context` | Explicit continuation; qualification alone adds no automatic consumer. |
+| `run_project_checks` | Explicit declared checks through ordinary permissions. |
+| `rewrite_simple_command` | Passthrough; native equivalence remains unverified. |
+
+Explicit component `off` settings suppress automatic recipes that need those components. They do not revoke an ordinary, explicitly requested read or check. Recognition or stored qualification does not add an automatic check runner or enable rewriting.
+
+Change only the global mode immediately, under the shared lock:
+
+```sh
+rtk proxy node scripts/manage-context-policy.mjs mode shadow --repo /absolute/project
+rtk proxy node scripts/manage-context-policy.mjs mode off --repo /absolute/project
+```
+
+`mode` has no dry-run and takes no `--apply` or `--source`. It preserves Jev settings, operation modes, promotions and other policy fields. Invalid policy or canonical expansion beyond the reader limit is rejected without replacing bytes. Off affects the next invocation without restart; it cannot cancel a sent query or remove earlier conversation evidence. Start a new conversation to verify a fresh baseline.
 
 The hook entry point is `node /absolute/context-policy/src/codex-context-policy.mjs hook`. It reads one JSON event on stdin, limits input to 1,000,000 UTF-8 bytes, and uses stderr for a generic rejected-input diagnostic without echoing input. In off mode it returns no stdout, performs no network/Git/rg work, and retains the native baseline. Installed execution requires the target's private receipt and owned native definition. The cwd must be the canonical target/worktree root; subdirectory and non-Git capture remain baseline. Automatic receipt/config/state reads reject FIFOs without waiting for writers.
 
@@ -71,7 +92,7 @@ Native `security` asks for the key and confirmation with a hidden prompt. Store 
 
 Runtime and authenticated setup prefer a valid `TYPESAFE_API_KEY` in their inherited environment; otherwise they use the bounded Keychain lookup. A Desktop application may not inherit a terminal's environment. Keychain fallback avoids depending on that inheritance. Storage is shared among opted-in installations for the same user, not isolated from every other process owned by that user.
 
-Setup discovers available models using authenticated GET `/v1/models` outside the hook's critical path. It persists only a discovered selected alias and preserves policy mode and `jev_enabled`. Configuring the key/model does not enable a promotion or change native trust. To retry discovery with the already stored key, or select a specific discovered model without another hidden prompt:
+Setup discovers available models using authenticated GET `/v1/models` outside the hook's critical path. It persists only a discovered selected alias and preserves policy mode and `jev_enabled`, using the same primary-checkout lock as other policy writers. Busy or oversized output is rejected; configuring the key/model does not enable a promotion or change native trust. To retry discovery with the already stored key, or select a specific discovered model without another hidden prompt:
 
 ```sh
 rtk proxy node src/codex-context-policy.mjs setup-jev --repo /absolute/project
@@ -121,7 +142,7 @@ A busy error identifies the exact lock path. Verify no installer is running and 
 
 Changing this installation's hook source document can invalidate trust of other handlers in that document. In the observed client, removing the six probes changed the policy's trust to `modified`; restoring the exact authorized bytes restored trust. Coordinate registration edits with native re-trust. Temporary probes must be removed before measuring an optimization baseline.
 
-Never remove a source worktree while a hook or installed skill refers to it. Phase-0 probes/off handler and the phase-1 policy still use their temporary sources. Phase-2 private trial fixtures also retain owned skill links and evaluation evidence. Preserve those resources until withdrawal or relocation and trust are complete. See [release procedure](RELEASING.md).
+Never remove a source worktree while a hook or installed skill refers to it. Phase-0 probes/off handler and the phase-1 policy still use their temporary sources. Phase-2 skill references and later private fixtures/evidence also require preservation. The phase-4 global trial was withdrawn; existing trusted production definitions were not silently repointed to newer source. Preserve those resources until withdrawal or relocation and trust are complete. See [release procedure](RELEASING.md).
 
 ## Read Exact Context and Continue
 
@@ -171,16 +192,19 @@ Explicit operation stdout is one structured JSON result, with no duplicated diag
 
 Check artifacts describe their original execution revision and remain recoverable after repository edits within the same task identity. Changed turn, objective, epoch, permissions or source versions invalidate them. Code references always require current repository evidence. Cancellation handles ordinary POSIX process groups and bounds inherited-pipe settlement; escaped groups and SIGKILL are not contained. Windows and native host delivery of HUP/QUIT remain unverified. Command rewriting returns passthrough for every candidate until actual native permission/error equivalence is established.
 
-## Measure and Promote a Context Family
+## Measure and Qualify an Operation Family
 
 Use only complete actual paired evidence described in [evaluation](evaluation.md). The report command requires a private, owned, regular JSONL run file no larger than 4 MB and the exact versioned corpus:
 
 ```sh
+umask 077
 rtk proxy node src/pilot-evaluation.mjs report --runs /private/runs.jsonl --tasks evaluation/tasks.jsonl > /private/report.json
 rtk proxy node scripts/manage-context-policy.mjs promote --repo /absolute/project --report /private/report.json --family code_context --variant deterministic
 ```
 
-Keep the report private (0600); append `--apply` only for a qualifying reviewed report. The manager recomputes original rows, checks current native coverage and source/model/effort versions, and stores `.codex/codex-context-promotion-<family>-<variant>.json` plus its hash in `promotions`. It sets that family's mode to enforce while preserving the global mode cap. `hybrid` requires independently useful, correctly bound actual Jev usage; disabling Jev preserves separately qualified deterministic records. The current limited experiment cannot pass these conditions, so keep global shadow and Jev disabled.
+Keep the report private (0600); append `--apply` only for a qualifying reviewed report. The manager recomputes original rows, validates the entire current policy, checks native coverage and source/model/effort versions, and stores `.codex/codex-context-promotion-<family>-<variant>.json` plus its hash in `promotions`. Input and canonical stored reports are capped at 4 MB; canonical policy is capped at 32,000 bytes before either write. Rejection publishes no new report or policy. Later write failures report already-applied paths rather than promising rollback.
+
+Qualification sets that family's mode to enforce while preserving the global mode cap. Returned `activation` identifies `automatic_consumer_available`, `scope` (`automatic-context` or `qualification-only`) and unchanged `global_mode`; it does not claim an actual native emission. `hybrid` requires independently useful, correctly bound actual Jev usage; disabling Jev preserves separately qualified deterministic records. The completed experiment cannot pass these conditions, so keep global shadow and Jev disabled. The report retains failed/excluded task IDs, invalid-row diagnostics and descriptive repeat samples without inventing qualification.
 
 ## Restricted Native Trial
 
@@ -194,3 +218,5 @@ rtk proxy node scripts/manage-context-trial.mjs remove --admission /private/tria
 ```
 
 This manager adds one owned global UserPromptSubmit entry and keeps its receipt beside admission; native trust still requires Codex's normal control. Unknown model/effort or mismatched prompt/state emits nothing. It never enables production enforce. Retain attempted/failed sessions and actual whole-task usage; immutable observation timing excludes its own audit, and native wall time includes it. A transcript must separately prove exact developer evidence before generation. Withdraw the temporary entry after the experiment, preserving foreign handlers and source-document trust.
+
+Corpus `prior_requests` execute as real ordered turns resumed in the same native thread. A follow-up requires captured prior versions and private audit matching its run, variant, task, session and ordinal. Missing/corrupt audit or identity mismatch retains baseline with `prior-conversation-unverified`; final-turn metadata cannot relabel different earlier effort. Hybrid continuity follows the same accepted objective/model rules as production. The frozen corpus has at most two prior requests; this establishes those cases, not arbitrary resume or compaction coverage.

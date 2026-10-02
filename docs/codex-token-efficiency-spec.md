@@ -1,6 +1,6 @@
 ---
 date: 2026-09-30
-status: implementation-in-progress
+status: implemented-and-evaluated
 summary: Especificación de un piloto independiente de LifeOS para automatizar decisiones de contexto y herramientas en Codex mediante reglas y Jev, conservando la interfaz actual.
 read_when: Antes de preparar el plan por fases o implementar automatización para reducir tokens en el harness de Codex.
 analyzed_commit: 5e2f2e8
@@ -9,7 +9,7 @@ codex_cli_version: 0.159.2
 
 # Especificación: decisiones automáticas para reducir tokens en Codex
 
-Repository update (2026-10-02): `codex-token-efficiency/` is an independent Git repository with its authorized delivery remote and `develop` branch. Phases 0–1 merged; phase 2 is implemented and reviewed in PR #3, with final documentation/checks preceding merge. Paths below are relative to its root; the former parent repository's Git metadata was moved to Trash. This approved design remains the target; [usage](usage.md) and [phase validation](validation/phase-2.md) describe actual current capabilities and limits.
+Repository update (2026-10-02): `codex-token-efficiency/` is an independent Git repository with its authorized delivery remote and `develop` branch. Phases 0–3 merged; phase 4 is implemented and evaluated in PR #5 after both required reviews and confirmed corrections. Paths below are relative to its root; the former parent repository's Git metadata was moved to Trash. This approved design remains the target; [usage](usage.md) and [phase validation](validation/phase-4.md) describe actual capabilities, the negative qualification result and retained limits.
 
 ## 1. Decisión y objetivo
 
@@ -17,7 +17,7 @@ Construir una automatización pequeña, independiente de LifeOS: hooks nativos d
 
 El objetivo es reducir tokens y tiempo por tarea terminada correctamente, trasladando decisiones repetitivas fuera del modelo conversacional. El piloto conserva su modelo y esfuerzo; así podremos distinguir el ahorro por contexto y operaciones del efecto de cambiar de modelo.
 
-This approved specification records the brainstorming design. The [initial research](codex-token-efficiency-proposal.md) contains source analysis. This document supersedes its implementation-location, phase-order and Jev-timing decisions. Implementation is in progress; limited native integration has been measured, but no family is promoted and no general token saving is claimed.
+This approved specification records the brainstorming design. The [initial research](codex-token-efficiency-proposal.md) contains source analysis. This document supersedes its implementation-location, phase-order and Jev-timing decisions. All five phases are implemented and native evaluation retained 207 attempts. Complete billing and required quality evidence do not qualify a family; no promotion or general token saving is claimed.
 
 Todo el código, pruebas y documentación del proyecto se mantiene en `codex-token-efficiency/`. El [AGENTS.md del módulo](../AGENTS.md) fija el proceso obligatorio de planificación, implementación y entrega.
 
@@ -343,4 +343,4 @@ Dependencias operativas: hooks funcionales en el cliente elegido, Node/Git/`rg`,
 - Evidencia exacta, recuperación progresiva y cobertura protegida; sin resúmenes de IA por defecto.
 - Activación por resultados reales, con reserva determinista y desactivación sencilla.
 
-La siguiente entrega será un plan de implementación por las cinco fases anteriores, con tareas, puntos de integración, verificaciones y criterios de cierre. La aprobación de esta especificación precede a ese plan; no inicia por sí misma la implementación. Antes de ejecutarlo, resolver la ausencia de `develop` registrada en [AGENTS.md](../AGENTS.md).
+Roe approved the subsequent five-phase implementation plan and established the independent remote/develop prerequisite. The implementation and actual evaluation are recorded in the [plan](plans/2026-09-30-codex-token-efficiency.md) and phase validation documents. Historical research/planning observations do not override the actual current limits: production stays observational, Jev is disabled and no family is qualified.

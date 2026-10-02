@@ -61,7 +61,8 @@ export async function readContextSourceVersions(sourceRoot, { input, config, que
   const clientVersion = input.client_version ?? native.client_version;
   const effort = input.reasoning_effort ?? native.reasoning_effort;
   const sources = await Promise.all(['codex-context-policy.mjs', 'context-state.mjs', 'jev-client.mjs', 'context-credentials.mjs',
-    'repository-context.mjs', 'context-results.mjs', 'context-result-expiry.mjs', 'context-prefetch.mjs', 'context-promotion.mjs', 'project-checks.mjs']
+    'repository-context.mjs', 'context-results.mjs', 'context-result-expiry.mjs', 'context-prefetch.mjs', 'context-promotion.mjs',
+    'project-checks.mjs', 'context-trial.mjs', 'context-install-lock.mjs']
     .map(path => readFile(join(sourceRoot, 'src', path), { encoding: 'utf8', signal })));
   return { client_version: ['0.159.2', '0.159.3'].includes(clientVersion) ? clientVersion : 'unverified',
     main_model: typeof input.model === 'string' && /^[A-Za-z0-9._:/-]{1,128}$/.test(input.model) ? input.model : 'unverified',
@@ -132,7 +133,9 @@ export async function readContextPolicyConfig(repoRoot, signal) {
 
 async function readQualifiedContextReport(repoRoot, config, family, variant, signal) {
   const record = config.promotions?.[family]?.[variant];
-  if (!record || !['code_context', 'code_review_context', 'documentation_context'].includes(family)) return null;
+  if (!record) return null;
+  const { contextOperationFamilies } = await import('./context-promotion.mjs');
+  if (!contextOperationFamilies.includes(family)) return null;
   let file;
   try {
     const root = await realpath(repoRoot); const directory = join(root, '.codex');
@@ -220,7 +223,8 @@ export async function handleCodexHook(input, sourceRoot) {
     signal.throwIfAborted();
     if (config.operations[decision.operation] !== 'off') {
       const { prepareCodexContext } = await import('./context-prefetch.mjs');
-      const prepared = await prepareCodexContext(state, decision, state.versions, { state_dir: stateDir, signal });
+      const prepared = await prepareCodexContext(state, decision, state.versions,
+        { state_dir: stateDir, signal, operations: config.operations });
       signal.throwIfAborted();
       if (prepared && config.mode === 'enforce' && config.operations[decision.operation] === 'enforce') {
         const { resolveContextPromotion } = await import('./context-promotion.mjs');

@@ -67,7 +67,8 @@ try {
   }
   const tests = paths.filter(path => path.startsWith('tests/') && path.endsWith('.test.mjs'));
   if (!tests.length) reportGateFailure('No behavioral tests found.');
-  else runGateCommand(['--test', ...tests.map(path => resolve(root, path))]);
+  // ponytail: Isolate deadline-sensitive test files; revisit only if gate duration becomes a measured bottleneck.
+  else runGateCommand(['--test', '--test-concurrency=1', ...tests.map(path => resolve(root, path))]);
   try {
     const corpusText = contents.get('evaluation/tasks.jsonl');
     if (corpusText === undefined) throw new Error('Pilot corpus is missing.');

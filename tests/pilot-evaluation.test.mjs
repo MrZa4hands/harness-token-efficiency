@@ -216,6 +216,12 @@ test('verification_gate_reports_syntax_and_behavior_failures', async () => {
   const portable = spawnSync(process.execPath, [gate], { cwd: root, encoding: 'utf8' });
   assert.equal(portable.status, 0, 'Unavailable external references must not break a portable repository gate');
   assert.match(portable.stderr, /external reference/i);
+  const isolatedCheck = "import test from 'node:test'; import {open,unlink} from 'node:fs/promises'; " +
+    "test('isolated deadline worker', async () => { const file = await open('active-check-worker', 'wx'); " +
+    "try { await new Promise(resolve => setTimeout(resolve, 300)); } finally { await file.close(); await unlink('active-check-worker'); } });\n";
+  for (const name of ['first-worker.test.mjs', 'second-worker.test.mjs']) await writeFile(join(root, 'tests', name), isolatedCheck);
+  const isolated = spawnSync(process.execPath, [gate], { cwd: root, encoding: 'utf8' });
+  assert.equal(isolated.status, 0, 'Deadline-sensitive test files must run in isolated workers: ' + isolated.stderr);
   await writeFile(join(root, 'README.md'), '[Required local document](missing-required.md)\n');
   const localLink = spawnSync(process.execPath, [gate], { cwd: root, encoding: 'utf8' });
   assert.equal(localLink.status, 1);

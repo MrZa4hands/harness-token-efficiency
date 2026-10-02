@@ -156,6 +156,24 @@ test('owned_runtime_is_private_but_explicit_and_foreign_evidence_remains_availab
     input: { client_version: '0.159.2', model: 'fixture-main-model', reasoning_effort: 'medium' } });
   const runs = createContextPilotRuns(versions); runs[0].private_runtime_note = 'SYNTHETIC_PRIVATE_RUNTIME_NOTE';
   const reportPath = join(temporary, 'runtime-qualified-report.json');
+  for (const family of ['code_context', 'code_review_context', 'documentation_context', 'get_repository_changes',
+    'read_context', 'run_project_checks', 'rewrite_simple_command']) {
+    await writeFile(reportPath, JSON.stringify(comparePilotRuns(runs.map(row => ({ ...row, family })))), { mode: 0o600 });
+    assert.equal((await promoteContextPolicy({ repo_root: root, report_path: reportPath, family,
+      variant: 'deterministic', apply: true })).error, null);
+    const privateState = await captureContextTask({ cwd: root, session_id: 'private-' + family,
+      hook_event_name: 'UserPromptSubmit', prompt: 'Inspect SYNTHETIC_PRIVATE_RUNTIME_NOTE.' }, null);
+    const selected = await operations.selectCodeContext({ ...request, request_hash: privateState.request_hash,
+      repo_revision: privateState.repo_revision, context_epoch: privateState.context_epoch,
+      byte_limit: 2_000_000, paths: [], symbols: ['SYNTHETIC_PRIVATE_RUNTIME_NOTE'], family: 'code_context', exhaustive: false });
+    assert.equal(selected.status, 'ok', selected.stderr);
+    assert.ok(!selected.entries.some(entry => entry.path.startsWith('.codex/codex-context-promotion-')),
+      family + ' private reports cannot become automatic evidence');
+    const privateChanges = await operations.getRepositoryChanges({ ...request, request_hash: privateState.request_hash,
+      repo_revision: privateState.repo_revision, context_epoch: privateState.context_epoch });
+    assert.ok(privateChanges.status === 'error' || !privateChanges.entries.some(entry => entry.path.startsWith('.codex/codex-context-promotion-')),
+      family + ' private reports cannot become automatic change evidence');
+  }
   await writeFile(reportPath, JSON.stringify(comparePilotRuns(runs)), { mode: 0o600 });
   assert.equal((await promoteContextPolicy({ repo_root: root, report_path: reportPath, family: 'code_context',
     variant: 'deterministic', apply: true })).error, null);

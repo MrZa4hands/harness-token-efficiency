@@ -5,7 +5,9 @@ const corpusText = readFileSync(new URL('../evaluation/tasks.jsonl', import.meta
 const corpusHash = createHash('sha256').update(corpusText).digest('hex');
 const heldOutTasks = new Map(corpusText.trim().split('\n').map(row => JSON.parse(row))
   .filter(task => task.split === 'held_out').map(task => [task.task_id, task]));
-const contextFamilies = ['code_context', 'code_review_context', 'documentation_context'];
+/** Known context operation families; recognition never supplies native equivalence or promotion evidence. */
+export const contextOperationFamilies = Object.freeze(['code_context', 'code_review_context', 'documentation_context',
+  'get_repository_changes', 'read_context', 'run_project_checks', 'rewrite_simple_command']);
 const variants = ['baseline', 'deterministic', 'hybrid'];
 const hash = value => createHash('sha256').update(value).digest('hex');
 const median = values => {
@@ -48,31 +50,43 @@ function pilotRunQuality(run) {
 /** Compare pilot runs using the frozen held-out corpus and all providers' complete-task tokens; failures remain reported.
  * @param {Array<object>} runs
  * @returns {{report_version:number,corpus_hash:string,runs:object[],families:object[],promotions:object[],limitations:string[]}} */
-export function comparePilotRuns(runs) {
+function comparePilotCohort(runs) {
   const report = { report_version: 1, corpus_hash: corpusHash, runs: Array.isArray(runs) ? runs : [],
-    families: [], promotions: [], limitations: [] };
+    families: [], promotions: [], limitations: [], incomplete_task_ids: [], invalid_run_ids: [], invalid_row_indexes: [] };
   if (!Array.isArray(runs) || !runs.length) { report.limitations.push('Complete paired native runs are missing.'); return report; }
   const pairs = new Map(); const runIds = new Set();
-  for (const run of runs) {
+  for (const [index, run] of runs.entries()) {
     const task = heldOutTasks.get(run?.task_id);
-    if (!task || run.split !== 'held_out' || !variants.includes(run.variant) || !contextFamilies.includes(run.family) ||
+    if (!task || run.split !== 'held_out' || !variants.includes(run.variant) || !contextOperationFamilies.includes(run.family) ||
         typeof run.run_id !== 'string' || !run.run_id || runIds.has(run.run_id) || run.corpus_hash !== corpusHash ||
         run.prompt_hash !== hash(task.prompt) || run.initial_revision !== task.initial_revision || run.fixture_hash !== task.fixture.sha256 ||
         !Number.isFinite(run.duration_ms) || run.duration_ms < 0 || ![0, 1, 2].includes(run.order_index) || run.cache_control !== 'recorded') {
-      report.limitations.push('Pilot identity, corpus, prompt, state, ordering or cache controls are invalid.'); return report;
+      report.limitations.push('Pilot identity, corpus, prompt, state, ordering or cache controls are invalid.');
+      if (typeof run?.run_id === 'string') report.invalid_run_ids.push(run.run_id);
+      report.invalid_row_indexes.push(index); continue;
     }
     runIds.add(run.run_id); const pair = pairs.get(run.task_id) ?? {};
-    if (pair[run.variant]) { report.limitations.push('Duplicate task variants require a separately identified repeated experiment.'); return report; }
+    if (pair[run.variant]) {
+      report.limitations.push('Duplicate task variants require a separately identified repeated experiment.');
+      report.invalid_run_ids.push(run.run_id); report.invalid_row_indexes.push(index); continue;
+    }
     pair[run.variant] = run; pairs.set(run.task_id, pair);
   }
   if (pairs.size !== heldOutTasks.size || [...pairs.values()].some(pair => variants.some(variant => !pair[variant]))) {
-    report.limitations.push('All 60 held-out tasks require baseline, deterministic and hybrid native executions.'); return report;
+    report.limitations.push('All 60 held-out tasks require baseline, deterministic and hybrid native executions.');
+    report.incomplete_task_ids = [...heldOutTasks.keys()].filter(taskId => variants.some(variant => !pairs.get(taskId)?.[variant]));
   }
-  for (const family of contextFamilies) {
-    const familyPairs = [...pairs.values()].filter(pair => pair.baseline.family === family);
-    if (!familyPairs.length) continue;
+  for (const family of contextOperationFamilies) {
+    const familyPairs = [...pairs.values()].filter(pair => variants.every(variant => pair[variant]) && pair.baseline.family === family);
+    if (!familyPairs.length) {
+      for (const variant of ['deterministic', 'hybrid']) report.families.push({ family, variant, sample_size: 0,
+        correct_pairs: 0, median_token_reduction: null, minimum_token_reduction: null, maximum_token_reduction: null,
+        median_latency_delta_ms: null, p95_latency_delta_ms: null, token_reductions: [], latency_deltas_ms: [],
+        failed_task_ids: [], excluded_task_ids: [], fingerprint: null, limitations: ['No paired native evidence for this family.'] });
+      continue;
+    }
     for (const variant of ['deterministic', 'hybrid']) {
-      const limitations = []; const reductions = []; const durations = []; const increments = []; const failedTaskIds = [];
+      const limitations = []; const reductions = []; const durations = []; const increments = []; const failedTaskIds = []; const excludedTaskIds = [];
       const fingerprints = new Set();
       for (const pair of familyPairs) {
         const baseline = pair.baseline; const candidate = pair[variant]; const deterministic = pair.deterministic;
@@ -89,6 +103,7 @@ export function comparePilotRuns(runs) {
         }
         if (baseTokens !== null && candidateTokens !== null && baseTokens > 0 && pilotRunQuality(baseline) && pilotRunQuality(candidate))
           reductions.push((baseTokens - candidateTokens) / baseTokens);
+        else excludedTaskIds.push(candidate.task_id);
         durations.push(candidate.duration_ms - baseline.duration_ms);
         if (variant === 'hybrid') {
           const deterministicTokens = pilotRunTokens(deterministic);
@@ -105,11 +120,64 @@ export function comparePilotRuns(runs) {
       if (median(durations) > 0 || percentile95(durations) > 1000) limitations.push('Median or p95 task latency exceeds the allowed bounds.');
       if (variant === 'hybrid' && (!increments.length || median(increments) <= 0)) limitations.push('Hybrid has no demonstrated incremental total-token value.');
       const summary = { family, variant, sample_size: familyPairs.length, correct_pairs: reductions.length,
-        median_token_reduction: reduction, median_latency_delta_ms: median(durations), p95_latency_delta_ms: percentile95(durations),
-        failed_task_ids: failedTaskIds, limitations: [...new Set(limitations)], fingerprint: fingerprints.size === 1 ? [...fingerprints][0] : null };
+        median_token_reduction: reduction, minimum_token_reduction: reductions.length ? Math.min(...reductions) : null,
+        maximum_token_reduction: reductions.length ? Math.max(...reductions) : null,
+        token_reductions: reductions, latency_deltas_ms: durations,
+        median_latency_delta_ms: median(durations), p95_latency_delta_ms: percentile95(durations),
+        failed_task_ids: failedTaskIds, excluded_task_ids: excludedTaskIds,
+        limitations: [...new Set(limitations)], fingerprint: fingerprints.size === 1 ? [...fingerprints][0] : null };
       report.families.push(summary);
-      if (!summary.limitations.length) report.promotions.push({ family, variant, fingerprint: summary.fingerprint });
+      if (!report.limitations.length && !summary.limitations.length) report.promotions.push({ family, variant, fingerprint: summary.fingerprint });
     }
+  }
+  return report;
+}
+
+/** Compare complete paired pilot experiments without discarding failed or incomplete repeats; raw runs stay auditable. */
+export function comparePilotRuns(runs) {
+  if (!Array.isArray(runs) || !runs.some(run => run?.experiment_id !== undefined)) return comparePilotCohort(runs);
+  const report = { report_version: 1, corpus_hash: corpusHash, runs, families: [], promotions: [], limitations: [], experiments: [],
+    incomplete_task_ids: [], invalid_run_ids: [], invalid_row_indexes: [] };
+  const groups = new Map(); const identities = new Set();
+  for (const [index, run] of runs.entries()) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(run?.experiment_id ?? '') || typeof run.run_id !== 'string' || identities.has(run.run_id)) {
+      report.limitations.push('Repeated experiment identities must be explicit and run identities globally unique.');
+      if (typeof run?.run_id === 'string') report.invalid_run_ids.push(run.run_id);
+      report.invalid_row_indexes.push(index); continue;
+    }
+    identities.add(run.run_id); const group = groups.get(run.experiment_id) ?? { rows: [], indexes: [] };
+    group.rows.push(run); group.indexes.push(index); groups.set(run.experiment_id, group);
+  }
+  for (const [experiment_id, group] of groups) {
+    const cohort = comparePilotCohort(group.rows); report.experiments.push({ experiment_id, ...cohort });
+    report.limitations.push(...cohort.limitations.map(reason => experiment_id + ': ' + reason));
+    report.incomplete_task_ids.push(...cohort.incomplete_task_ids);
+    report.invalid_run_ids.push(...cohort.invalid_run_ids);
+    report.invalid_row_indexes.push(...cohort.invalid_row_indexes.map(index => group.indexes[index]));
+  }
+  report.incomplete_task_ids = [...new Set(report.incomplete_task_ids)];
+  for (const family of contextOperationFamilies) for (const variant of ['deterministic', 'hybrid']) {
+    const summaries = report.experiments.map(cohort => cohort.families.find(row => row.family === family && row.variant === variant));
+    const reductions = summaries.flatMap(row => row?.token_reductions ?? []);
+    const durations = summaries.flatMap(row => row?.latency_deltas_ms ?? []);
+    const fingerprints = new Set(summaries.map(row => row?.fingerprint));
+    const limitations = [...new Set(summaries.flatMap(row => row?.limitations ?? ['Incomplete repeated experiment.']))];
+    if (fingerprints.size !== 1 || fingerprints.has(null) || fingerprints.has(undefined)) limitations.push('Repeated experiment versions are unverified or mixed.');
+    const summary = { family, variant, sample_size: summaries.reduce((sum, row) => sum + (row?.sample_size ?? 0), 0),
+      correct_pairs: reductions.length, median_token_reduction: reductions.length ? median(reductions) : null,
+      minimum_token_reduction: reductions.length ? Math.min(...reductions) : null,
+      maximum_token_reduction: reductions.length ? Math.max(...reductions) : null,
+      token_reductions: reductions, latency_deltas_ms: durations,
+      median_latency_delta_ms: durations.length ? median(durations) : null,
+      p95_latency_delta_ms: durations.length ? percentile95(durations) : null,
+      failed_task_ids: [...new Set(summaries.flatMap(row => row?.failed_task_ids ?? []))],
+      excluded_task_ids: [...new Set(summaries.flatMap(row => row?.excluded_task_ids ?? []))],
+      fingerprint: fingerprints.size === 1 ? [...fingerprints][0] ?? null : null, limitations };
+    report.families.push(summary);
+    if (!report.limitations.length && !limitations.length && summary.median_token_reduction + Number.EPSILON >= 0.20 &&
+        summary.median_latency_delta_ms <= 0 && summary.p95_latency_delta_ms <= 1000 &&
+        report.experiments.every(cohort => cohort.promotions.some(row => row.family === family && row.variant === variant)))
+      report.promotions.push({ family, variant, fingerprint: summary.fingerprint });
   }
   return report;
 }
@@ -123,7 +191,7 @@ export function comparePilotRuns(runs) {
 export function resolveContextPromotion(config, family, versions, report) {
   const familyMode = config.operations?.[family] ?? 'shadow';
   if (config.mode === 'off' || familyMode === 'off') return 'off';
-  if (config.mode !== 'enforce' || familyMode !== 'enforce' || !contextFamilies.includes(family) ||
+  if (config.mode !== 'enforce' || familyMode !== 'enforce' || !contextOperationFamilies.includes(family) ||
       report?.report_version !== 1 || report.corpus_hash !== corpusHash) return 'shadow';
   const measured = comparePilotRuns(report.runs);
   for (const variant of config.jev_enabled ? ['hybrid', 'deterministic'] : ['deterministic']) {
