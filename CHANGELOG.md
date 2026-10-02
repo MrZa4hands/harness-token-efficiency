@@ -6,6 +6,13 @@ read_when: Before assessing the capabilities of the current pilot phase.
 
 ## Unreleased
 
+### Phase 3 — Recoverable Results and Declared Checks
+
+- Reuse exact identical private artifacts while continuing to deliver evidence on every native read. Preserve current code hashes, original check execution identity, edit invalidation and whole-unit recovery. Owned physical expiry is bounded and opportunistic; no off/idle cleanup guarantee. See [operations](docs/usage.md).
+- Run explicitly requested declared npm checks through ordinary native permissions, retaining exact stdout/stderr, observed failures and cancellation/timeout status. Revalidate each batch member's manager/lockfiles/declaration; unsupported pnpm/Bun remain disabled. Routine CLI JSON avoids duplicate diagnostic output. Capture and group limits stay explicit.
+- Verify 138 passing tests and both required reviews, correcting all 26 first-stage and two second-stage confirmed findings through failing-first regressions. Final-source Codex verifies repeated reads, edit invalidation and complete exit-7 diagnostic recovery. Thanks to Roe for native trust verification. See [phase 3 validation](docs/validation/phase-3.md).
+- Measure fewer private storage writes, without claiming native token or latency savings. Every rewrite remains passthrough; native confirmed availability/compaction remains unverified. No family is promoted and Jev stays disabled. Preserve private execution evidence before worktree cleanup.
+
 ### Phase 2 — Exact Expandable Context
 
 - Read protected source, raw staged/worktree or immutable range changes, and complete private continuations through three native operations. Preserve BOM/CRLF, binary bytes, hashes, oversized hunks and original failures. Partial literal-reference coverage keeps ordinary exploration available. See [operations](docs/usage.md).

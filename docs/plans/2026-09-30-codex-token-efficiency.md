@@ -10,7 +10,7 @@
 
 **Spec:** [Pilot specification](../codex-token-efficiency-spec.md), R1–R8 and phases 0–4. Also read [AGENTS.md](../../AGENTS.md), [README.md](../../README.md), and [research](../codex-token-efficiency-proposal.md).
 
-**Status:** Roe authorized implementation on 2026-10-01; native inline execution selected. Phases 0–1 merged; current develop is `3ff847b64c3baf22e220e0f1cbcb8c1c9b106ecf`. Phase 2 PR #3 implements exact expandable context, automatic preparation, restricted native trials and recomputed qualification. Both prescribed review stages and all confirmed corrections are complete; source gate 101/101. Release documentation/final checks and merge precede phase 3. Historical paired integration and current-source smoke prove delivery, not promotion. Jev stays disabled; no general saving is claimed. Source worktrees remain preserved where referenced. Evidence: [phase 0 validation](../validation/phase-0.md), [phase 1 validation](../validation/phase-1.md), [phase 2 validation](../validation/phase-2.md). Phases 3–4 remain pending.
+**Status:** Roe authorized implementation on 2026-10-01; native inline execution selected. Phases 0–2 merged; current develop is `f5253237b2e747b713aee153367321e68bd29b31`. Phase 3 PR #4 implements exact artifact reuse, conservative delivery guards, owned physical expiry and explicit declared checks. Both required reviews completed, all 28 confirmed findings corrected, source gate 138/138, and final-source native read/edit/check recovery verified. Release documentation/final-head checks and merge precede phase 4. Rewriting remains passthrough, evidence is resent, Jev disabled and no general saving or promotion is claimed. Evidence: [phase 0 validation](../validation/phase-0.md), [phase 1 validation](../validation/phase-1.md), [phase 2 validation](../validation/phase-2.md), [phase 3 validation](../validation/phase-3.md). Phase 4 remains pending.
 
 **read_when:** Before implementing a phase, opening its PR, or resuming after compaction.
 
@@ -94,7 +94,7 @@ Split only by the stated responsibilities or when a file approaches 500 lines. N
 - `PilotRun`: `{task_id,conversation_id,family,variant,model,effort,initial_revision,versions,order,cache_condition,correct,checks_passed,required_evidence,delivered_evidence,omissions,corrections,duration_ms,usage_by_provider,cost_by_provider}`. Missing usage/cost is `null`, never zero.
 - Promotion record: `{family,variant,versions,corpus_hash,thresholds,report_hash,promoted_at}`. A config flag alone cannot constitute a promotion.
 
-Operation CLI: `rtk proxy node src/codex-context-policy.mjs <operation>`, one JSON request on stdin. Hook argument: literal `hook`; expansion: `read_context`. The skill provides exact request and executable command examples; stdout is protocol only, diagnostics use stderr. External runtime registration/configuration/state are installed locations, never extra source copies.
+Operation CLI: `rtk proxy node src/codex-context-policy.mjs <operation>`, one JSON request on stdin. Hook argument: literal `hook`; expansion: `read_context`. The skill provides exact request and executable command examples; explicit-operation stdout is structured protocol only, with diagnostics inside JSON and no duplicate stderr preview; hook/setup channels keep their own contracts. External runtime registration/configuration/state are installed locations, never extra source copies.
 
 ## Required Opening of Every Phase
 
@@ -242,16 +242,16 @@ Branch `feat/codex-token-efficiency-phase-3`. Deliver measured incremental savin
 
 **Interfaces:** Consume bundles/state. Produce `reuseContextDelivery(bundle: ContextBundle, receipt: object|null, state: TaskState): {action:'reuse'|'prefetch',reference:string|null}`. Private receipt: `{bundle_hash,session_id,turn_id,context_epoch,request_hash,repo_revision,corpus_hash,permissions_hash,versions,delivery_confirmed}`. `readContext` retrieves full results by validated reference.
 
-- [ ] **RED: `reuse_requires_current_delivery`.** Confirmed identical content/epoch permits reference. Edit, new candidate/file, corpus/permission/version/objective change, compaction, or uncertain resume requires fresh content. Prompt hash alone is insufficient. Without delivery confirmation, resend; repeated arbitrary tools are never blocked.
+- [x] **RED: `reuse_requires_current_delivery`.** Confirmed identical content/epoch permits reference. Edit, new candidate/file, corpus/permission/version/objective change, compaction, or uncertain resume requires fresh content. Prompt hash alone is insufficient. Without delivery confirmation, resend; repeated arbitrary tools are never blocked.
   ```js
   assert.equal(reuseContextDelivery(bundle, receipt, current).action, 'reuse');
   assert.equal(reuseContextDelivery(bundle, receipt, compacted).action, 'prefetch');
   assert.equal(reuseContextDelivery(bundle, null, current).reference, null);
   ```
-- [ ] **Observe RED:** `rtk proxy node --test --test-name-pattern='reuse_requires_current_delivery' tests/context-reuse.test.mjs` → freshness/delivery assertion failure.
-- [ ] **Implement:** cache key includes request/task/corpus/permissions/actual Jev/questions/policy/content; invalidate conservatively when events are unavailable. Receipt follows verified delivery, never mere preparation. Without reliable context-availability signals, deduplicate internal work only and resend evidence. Wrapper envelope preserves status/exit/error, omissions, cursor, and private full result; 8000-byte routine pages use whole units.
-- [ ] **GREEN:** tests/gate PASS. Real session read → edit → reread → compact → recover; expanded code/hunks remain exact. Compare incremental savings against phase 2 including persistence and rereads.
-- [ ] **Commit:** `feat: reuse confirmed context with explicit invalidation and full results`.
+- [x] **Observe RED:** `rtk proxy node --test --test-name-pattern='reuse_requires_current_delivery' tests/context-reuse.test.mjs` → freshness/delivery assertion failure.
+- [x] **Implement:** cache key includes request/task/corpus/permissions/actual Jev/questions/policy/content; invalidate conservatively when events are unavailable. Receipt follows verified delivery, never mere preparation. Without reliable context-availability signals, deduplicate internal work only and resend evidence. Wrapper envelope preserves status/exit/error, omissions, cursor, and private full result; 8000-byte routine pages use whole units.
+- [x] **GREEN:** 138-test gate and final-source real session read → edit → reread → check → recover pass. Expanded evidence remains exact. Native compact/resume availability remains unverified, so evidence is always resent. Component storage comparison establishes fewer artifacts/writes, not native token or latency saving.
+- [x] **Commit:** `feat: reuse confirmed context with explicit invalidation and full results`.
 
 ### Task 3B: Execute Only Declared Project Checks
 
@@ -259,16 +259,16 @@ Branch `feat/codex-token-efficiency-phase-3`. Deliver measured incremental savin
 
 **Interfaces:** Produce `detectDeclaredChecks(repoRoot: string): Promise<Array<{name:string,command:string,args:string[]}>>`; `runProjectChecks({repo_root:string,checks:string[],signal:AbortSignal}): Promise<Array<{name,exit_code,stdout,stderr,status,omitted_count,next_cursor,full_result}>>`. Operation `run_project_checks` is explicitly requested through ordinary Codex tool permissions, never prompt preparation.
 
-- [ ] **RED: `declared_checks_preserve_failure`.** Existing scripts and compatible declared PM/lockfile are recognized; unknown check/conflicting PM executes nothing. Long failure preserves exit 7, stderr, and full retrieval. Empty stdout plus exit 7 is error, never success. Timeout/cancellation/permission denial is not PASS; prefetch never executes checks.
+- [x] **RED: `declared_checks_preserve_failure`.** Existing scripts and compatible declared PM/lockfile are recognized; unknown check/conflicting PM executes nothing. Long failure preserves exit 7, stderr, and full retrieval. Empty stdout plus exit 7 is error, never success. Timeout/cancellation/permission denial is not PASS; prefetch never executes checks.
   ```js
   assert.equal(failed.exit_code, 7);
   assert.equal(emptyFailure.status, 'error');
   assert.equal(unknownCheckExecutions, 0);
   ```
-- [ ] **Observe RED:** `rtk proxy node --test --test-name-pattern='declared_checks_preserve_failure' tests/project-checks.test.mjs` → permission/diagnostic/exit assertion failure.
-- [ ] **Implement:** use real package.json scripts and the module's documented gate declaration; do not interpret README prose as arbitrary shell or guess checks from extensions. Execute installed project PM via argv/cwd without installs. Do not filter failure evidence with RTK. Preserve full private stdout/stderr; passing checks may summarize, failures retain diagnosis and continuation. Denial returns its reason without changing permission policy.
-- [ ] **GREEN:** tests/gate PASS; real failing trial check reaches Codex with intact exit/diagnosis. Document unsupported check formats. Evaluate semantics and permission preservation before promotion.
-- [ ] **Commit:** `feat: run declared project checks without hiding failures`.
+- [x] **Observe RED:** `rtk proxy node --test --test-name-pattern='declared_checks_preserve_failure' tests/project-checks.test.mjs` → permission/diagnostic/exit assertion failure.
+- [x] **Implement:** use real package.json scripts and the module's documented gate declaration; do not interpret README prose as arbitrary shell or guess checks from extensions. Execute installed project PM via argv/cwd without installs. Do not filter failure evidence with RTK. Preserve full private stdout/stderr; passing checks may summarize, failures retain diagnosis and continuation. Denial returns its reason without changing permission policy.
+- [x] **GREEN:** tests/gate PASS; real failing trial check reaches Codex with intact exit/diagnosis. Document unsupported check formats. Evaluate semantics and permission preservation before promotion.
+- [x] **Commit:** `feat: run declared project checks without hiding failures`.
 
 ### Task 3C: Limited Local Command Rewrite
 
@@ -276,16 +276,18 @@ Branch `feat/codex-token-efficiency-phase-3`. Deliver measured incremental savin
 
 **Interfaces:** Produce `rewriteContextCommand(command: string): string|null`; `handleCodexHook` changes only command, preserving tool_input fields, using `permissionDecision:'allow'` plus `updatedInput`. Never change tool name or make PermissionRequest decisions.
 
-- [ ] **RED: `simple_rewrite_preserves_semantics`.** Initial candidates: git status, git status --short, git status --short --branch. Admit only real-client RTK equivalence for inventory/exit/errors. Pipe, redirects, heredoc, newline, &&, semicolon, substitution, backticks, env prefix, quoting, MCP, unknown flag, or existing RTK returns no rewrite. Off/shadow/unpromoted also remain unchanged.
+- [x] **RED: `simple_rewrite_preserves_semantics`.** Initial candidates: git status, git status --short, git status --short --branch. Admit only real-client RTK equivalence for inventory/exit/errors. Pipe, redirects, heredoc, newline, &&, semicolon, substitution, backticks, env prefix, quoting, MCP, unknown flag, or existing RTK returns no rewrite. Off/shadow/unpromoted also remain unchanged.
   ```js
   assert.equal(rewriteContextCommand('git status | cat'), null);
   assert.equal(rewriteContextCommand('git diff'), null);
   assert.equal(updatedInput.cwd, originalInput.cwd);
   ```
-- [ ] **Observe RED:** `rtk proxy node --test --test-name-pattern='simple_rewrite_preserves_semantics' tests/tool-rewrite.test.mjs` → passthrough/argument-preservation assertion failure.
-- [ ] **Implement:** literal recognition of verified forms, no universal parser; check RTK availability. Remove any candidate lacking equivalence. Exact evidence reads/diffs/show remain unchanged or use proxy where appropriate; no PostToolUse replacement. Native denies and existing write guards must still win.
-- [ ] **GREEN/integration:** tests/gate PASS; verify direct and nested recognized calls, unknown passthrough, persistent commands separately, and native permission rejection unchanged. Unsupported client disables this family. Measure real benefit before promotion.
-- [ ] **Commit:** `feat: rewrite only verified simple local status commands`; complete phase 3 lifecycle with incremental measurements.
+- [x] **Observe RED:** `rtk proxy node --test --test-name-pattern='simple_rewrite_preserves_semantics' tests/tool-rewrite.test.mjs` → passthrough/argument-preservation assertion failure.
+- [x] **Implement:** literal recognition of verified forms, no universal parser; check RTK availability. Remove any candidate lacking equivalence. Exact evidence reads/diffs/show remain unchanged or use proxy where appropriate; no PostToolUse replacement. Native denies and existing write guards must still win.
+- [x] **GREEN/integration:** tests/gate PASS; direct/nested/persistent/MCP inputs and PermissionRequest passthrough are verified locally. No candidate has actual native permission/error equivalence, so all candidates remain disabled. No active native rewrite or saving is claimed.
+- [x] **Commit:** `feat: rewrite only verified simple local status commands`; complete phase 3 lifecycle with incremental measurements.
+
+**Phase 3 result:** the prescribed conservative branch is delivered: internal exact storage reuse, explicit recoverable checks and no command rewrite. Both review stages and every confirmed TDD correction completed in source `af35956`; final-source native smoke passes. See [phase 3 validation](../validation/phase-3.md). Native confirmed availability, compaction and active rewrite remain unverified, so their optimization is disabled. Required release documentation/final gate and normal merge precede phase 4.
 
 ## Phase 4 — Final Evaluation and Gradual Activation
 

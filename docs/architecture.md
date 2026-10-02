@@ -4,7 +4,7 @@ read_when: Before changing hook installation, policy dispatch, or usage measurem
 
 # Current Architecture
 
-Phases 0–2 use Node standard-library modules, native hooks, and existing Git/rg. There is no resident daemon, new provider framework, database, dependency installation, or custom Codex interface.
+Phases 0–3 use Node standard-library modules, native hooks, and existing Git/rg. There is no resident daemon, new provider framework, database, dependency installation, or custom Codex interface.
 
 | Module | Current responsibility |
 |---|---|
@@ -14,7 +14,9 @@ Phases 0–2 use Node standard-library modules, native hooks, and existing Git/r
 | `src/jev-client.mjs` | Minimize safe scalar state, validate grouped answers/model/usage, issue one bounded request, discover/configure models. |
 | `src/context-credentials.mjs` | Prefer the environment, otherwise bounded Keychain lookup; native hidden setup outside the hook. |
 | `src/repository-context.mjs` | Exact protected selection, literal references, inert immutable Git reads, raw stage/range diffs, original utility diagnostics. |
-| `src/context-results.mjs` | Private hash-bound whole-unit pages and current task/revision revalidation. |
+| `src/context-results.mjs` | Exact reusable private artifacts, whole-unit pages, current-code and original-check identity validation. |
+| `src/context-result-expiry.mjs` | Owned artifact/header admission and bounded opportunistic physical expiry. |
+| `src/project-checks.mjs` | Current declared-check admission, explicit execution, cancellation, exact logs and visible infrastructure failures. |
 | `src/context-prefetch.mjs` | Code/review/documentation recipes under the shared deadline and byte envelope; incomplete proposals abstain. |
 | `src/context-promotion.mjs` | Complete paired corpus/quality/usage/version criteria and independent deterministic/hybrid qualification. |
 | `src/context-trial.mjs` | Private expiring native corpus admission; experimental preparation/audit, never production activation. |
@@ -29,7 +31,7 @@ The native client invokes the installed absolute Node/source command with hook J
 
 Capture hashes raw HEAD, index, inventory, working bytes and full file modes, then rechecks each identity. It avoids Git status and clean conversion filters while retaining effective ignore intent. Unsupported submodules/symlinks, changing snapshots and inventory over 64 MB or 1.8 seconds abstain. The entire handler shares a two-second deadline, including selection and final audit writes. Automatic reads reject nonregular files without waiting for FIFO writers. A saved capture remains valid when optional later preparation expires.
 
-State keeps six recent explicit requests and the active objective, each at most 6,000 UTF-8 bytes, below a one-megabyte serialized cap. Paths and literal symbols remain protected; exhaustive scope uses a bounded lexical rule. Known short continuations preserve the objective. CAS conflicts and interruptions leave an independent history-gap marker; configuration transitions also make continuity unknown. Ambiguous partial recovery stays baseline until a standalone explicit request restores continuity. Native compaction/resume and child identity coverage remain limited; no delivered-context cache exists yet.
+State keeps six recent explicit requests and the active objective, each at most 6,000 UTF-8 bytes, below a one-megabyte serialized cap. Paths and literal symbols remain protected; exhaustive scope uses a bounded lexical rule. Known short continuations preserve the objective. CAS conflicts and interruptions leave an independent history-gap marker; configuration transitions also make continuity unknown. Ambiguous partial recovery stays baseline until a standalone explicit request restores continuity. Native compaction/resume and child identity coverage remain limited; native preparation never creates a confirmed-delivery receipt.
 
 Private directories/files use 0700/0600. Seven-day logical expiry prevents stale continuity. Physical cleanup is opportunistic within 25 ms during enabled decision recording: it revalidates owned expired sibling state under a lock and avoids locking live sessions. Off/idle periods and large traversals have no physical deletion or progress guarantee. Corrupt state and crashed locks require deliberate recovery, never automatic takeover. Failures before a valid capture retain baseline with a generic diagnostic rather than fabricate decision metadata.
 
@@ -53,7 +55,13 @@ Changes compare raw HEAD/index/worktree bytes; owner-execute determines canonica
 
 Protected explicit paths, found imports/callers/tests/instructions and exhaustive matches cannot be removed by ranking. Literal/dynamic/external reference limits retain partial coverage. Review selection seeds dependencies from every verified changed-file page. Routine complete envelopes use whole units; omissions expose exact whole-unit cursors instead of slicing required evidence.
 
-Private results bind root/session/request/raw revision/epoch and are revalidated on expansion. A result hash also binds its complete stored bytes; owned permissions, regular-file admission and seven-day logical expiry are required. Physical result deletion and confirmed-delivery reuse follow phase 3. Uncertain compaction/resume still requires fresh evidence.
+Schema-2 results bind their exact serialized bytes and original execution task: root/session/turn/request/epoch, permissions, source/provider versions and protected requirements. Code expansion also verifies current raw revision, inventory and corpus. Check logs describe the original execution and tolerate later repository edits within that same identity. Publication rejects identity changes rather than assigning newer provenance to old evidence. Schema-1 references require fresh selection.
+
+Identical bytes reuse an existing validated artifact before any temporary write. New results use an exclusive private UUID temporary file, fsync and a no-clobber hard link; interrupted publication cannot poison the deterministic final name. Artifacts are regular owned 0600 files capped at 70 MB. Only the producer's temporary file is removed on completion. Native reads still return evidence: confirmed availability is required by the reuse guard, and the current client supplies no such receipt.
+
+Seven-day logical expiry always applies. Prompt maintenance validates bounded headers and at most 1 MB of an owned expired artifact. Explicit reads recover the requested page first, then use an independent 500 ms maintenance budget to remove at most one independently verified expired sibling, including retired sessions. An explicitly requested expired artifact can be pruned separately. Prefetch performs no large sweep. Unknown partial files, active files and off/idle periods have no automatic deletion guarantee.
+
+Declared checks run only through explicit operations and ordinary native tool permissions. Initial list admission and fresh per-member admission precede installed npm/Yarn argv execution; pnpm/Bun are conservatively unsupported. No prompt preparation executes checks. Exact stdout/stderr, observed manager exits and unsuccessful cancellation/timeout states remain visible. Captured output is bounded to 8 MB; storage failure retains execution evidence and an explicit result error. Original-task validation, fresh bounded persistence and post-execution CAS separate execution from publication. POSIX group cancellation and pipe settlement are bounded; this is not containment for escaped groups or SIGKILL. Every command rewrite remains passthrough.
 
 ## Measurement Boundary
 
@@ -61,4 +69,4 @@ Usage collection requires explicit session, thread, and counter-epoch identity. 
 
 The transcript adapter supports only observed versions `0.159.2` and `0.159.3`; it reads a bounded initial-size snapshot and rejects corruption or changing metadata identity. Its CLI always reports session scope and unverified worker coverage. Manually validated worker relationships are separate evidence, not automatic complete-task discovery.
 
-Paired promotion validates all sixty held-out identities in three variants, actual complete usage/model/effort/source, quality, order/cache records and family thresholds. Only observed clients 0.159.2/0.159.3 can qualify. Hybrid additionally binds every executed Jev model and demonstrates incremental value. One native paired case and current-source smoke establish integration only; no family is promoted. Deduplication, checks, rewriting and the full repeated experiment follow phases 3–4 of the [plan](plans/2026-09-30-codex-token-efficiency.md). See [usage](usage.md), [evaluation](evaluation.md), and [phase 2 validation](validation/phase-2.md).
+Paired promotion validates all sixty held-out identities in three variants, actual complete usage/model/effort/source, quality, order/cache records and family thresholds. Only observed clients 0.159.2/0.159.3 can qualify. Hybrid additionally binds every executed Jev model and demonstrates incremental value. Historical paired integration and final-source smoke establish integration only; no family is promoted. Phase 3 measures internal storage reuse and explicit checks; the full repeated experiment and family switches remain phase 4 of the [plan](plans/2026-09-30-codex-token-efficiency.md). See [usage](usage.md), [evaluation](evaluation.md), and [phase 3 validation](validation/phase-3.md).

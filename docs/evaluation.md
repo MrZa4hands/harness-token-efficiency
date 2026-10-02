@@ -4,7 +4,7 @@ read_when: Before collecting usage, materializing pilot cases, or making savings
 
 # Evaluation
 
-Phases 0–2 supply measurement indicators, synthetic cases, shadow calibration, restricted native trials and recomputed context promotion criteria. A single historical paired task and current-source smoke establish integration; the full repeated evaluation remains phase 4. No family is promoted and no general saving is claimed.
+Phases 0–3 supply measurement indicators, synthetic cases, shadow calibration, restricted native trials, recomputed context promotion criteria and final-source check/reuse integration. Component storage measurements and native smoke establish their stated integration scopes; the full repeated evaluation remains phase 4. No family is promoted and no general saving is claimed.
 
 ## Session Usage
 
@@ -67,7 +67,7 @@ Native shadow smoke confirms one installed trusted rule proposal with no tools, 
 rtk proxy node scripts/verify-context-policy.mjs
 ```
 
-The current gate passes 101 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
+The current gate passes 138 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
 
 Native observations are recorded separately in [phase 0 validation](validation/phase-0.md) and [phase 1 validation](validation/phase-1.md). Direct App tools, direct command tools, MCP, compaction, and resume retain their stated unverified status. Remaining probes must be withdrawn before optimization-baseline runs. Later paired experiments must preserve model, effort, prompts, starting state, order/cache controls, full evidence/check outcomes, all providers/workers, and expansion/correction costs. Unknown usage and failed tasks cannot be silently discarded to manufacture savings.
 
@@ -90,3 +90,11 @@ The temporary native trial is restricted to the exact public synthetic corpus an
 The historical `documentation_01` paired case used unchanged gpt-6.1-sol/xhigh and identical fixture/source in deterministic, baseline, hybrid order, with warm caches. All variants preserved the annotated result and required evidence; declared tests passed. Zero Jev queries mean this hybrid case measures no semantic value. Deterministic was slower than baseline, hybrid had no incremental token advantage over deterministic, and the incomplete sixty-task report refused promotion. Later source corrections invalidate that historical fingerprint as current promotion proof.
 
 Current-source smoke is separately bound to corrected modules and the actual observed native model/effort, without overrides. Failed/abstained discovery and mismatched-effort attempts remain recorded, with their usage included rather than silently discarded. They are not favorable paired comparisons. See [phase 2 validation](validation/phase-2.md) for exact scope and results. Subscription pricing and incomplete historical billing remain unknown; no cost estimate or saving is invented.
+
+## Phase 3 Component and Native Evidence
+
+Ten identical component reads per source compared phase 2 with final phase-3 source `af35956`. The correctly selected current private directory contained ten artifacts/8750 bytes versus one artifact/957 bytes, with exact identical content and 673 response bytes on every read. Lower-middle durations from ten sorted observations were 131.12 ms and 127.29 ms. Order was fixed, caches were not reset and the component probe overlapped native smoke. These observations establish internal storage reuse, not causal latency or native token savings. An earlier v2 counter inspected the wrong state directory; its artifact-count conclusion was withdrawn and its raw record retained.
+
+Fresh final-source native smoke used the existing Desktop engine `0.159.2`, actual `gpt-6.1-sol`/`high`, ordinary tools and unchanged permissions, with no model/effort overrides. It verified repeated exact delivery with shared storage, edit invalidation with BOM/CRLF retained, declared npm failure exit 7 and exact recovery of 26054 stderr bytes/1002 lines. The whole task took approximately 145.43 seconds. Twelve native per-response records match final CLI/session usage; all 33 commands, including one failed source lookup and three expected exit-7 operations, remain included. Raw usage, prompt, session identity and source hashes remain private. No worker inference was observed; broader auxiliary-provider coverage and subscription price remain unknown.
+
+The earlier pre-review smoke is retained as historical evidence, not final-source certification. Actual reviewer-provider usage is also retained separately and is not subtracted from or attributed to optimizer savings. No production delivery receipt was created, no rewrite was admitted and no Jev query was made by these wrappers. Native compaction/resume, native rewrite/permission equivalence, Windows cancellation and actual Yarn execution remain unverified. See [phase 3 validation](validation/phase-3.md). Only the complete paired phase-4 experiment can qualify a family.

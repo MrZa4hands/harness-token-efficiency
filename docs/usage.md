@@ -4,7 +4,7 @@ read_when: Before installing, trusting, configuring, or removing the context pol
 
 # Usage and Configuration
 
-Phases 0–2 establish compatibility, measurement, isolated decisions and exact expandable context. Off is inert; shadow and unpromoted enforce prepare privately without injecting evidence, rewriting commands or running checks. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after its negative calibration result.
+Phases 0–3 establish compatibility, measurement, isolated decisions, exact expandable context and explicitly requested declared checks. Off is inert; shadow and unpromoted enforce prepare privately without injecting evidence, rewriting commands or running checks automatically. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after its negative calibration result.
 
 ## Install and Trust
 
@@ -100,7 +100,7 @@ State lives below `~/.codex/codex-context-policy/<repo-hash>/<session-hash>/`: `
 
 Raw snapshot capture isolates global/system Git configuration while preserving effective global and repository-local ignore intent, and avoids Git clean filters. Submodules, external evidence symlinks, changed snapshots, more than 64 MB or a 1.8-second capture limit abstain. Explicit ignored paths remain retrievable. Canonical receipt ownership prevents automatic selection of untracked managed runtime contents; explicit, tracked and foreign evidence remains available. Unignored private runtime makes automatic review abstain rather than exposing its contents.
 
-Configuration changes, conflicting writers and interrupted capture make continuity unknown. An ambiguous continuation such as “hazlo” cannot repair missing history. A standalone explicit request can restore continuity while preserving protected requirements; native compaction/resume coverage remains unverified. No delivered-context reuse is performed yet.
+Configuration changes, conflicting writers and interrupted capture make continuity unknown. An ambiguous continuation such as “hazlo” cannot repair missing history. A standalone explicit request can restore continuity while preserving protected requirements; native compaction/resume coverage remains unverified. Identical current evidence reuses its exact private artifact, while every native read still returns content. Preparation does not create a confirmed-delivery receipt.
 
 Seven-day logical expiry prevents stale reuse. Physical cleanup is opportunistic within 25 ms during enabled decision recording; it cannot guarantee deletion or traversal progress when off/idle or in a large directory. A corrupt state or abandoned lock keeps baseline. Before moving an affected session directory/lock to Trash, stop its writers, preserve any decision records needed for billing, and reconcile the interruption deliberately. Never clear a live lock or assume incomplete usage is zero.
 
@@ -132,6 +132,7 @@ Installation creates an owned `.agents/skills/codex-context-operations` symlink 
 | `select_code_context` | `repo_root`, `session_id`, `paths`, `symbols`, `family`, `scope`, `exhaustive` |
 | `get_repository_changes` | `repo_root`, `session_id`, `scope` |
 | `read_context` | `repo_root`, `session_id`, `reference`; optional `cursor` |
+| `run_project_checks` | `repo_root`, `session_id`, `checks`; optional `timeout_ms` |
 
 Use repository/session identity from the current hook provenance. A request file for code selection can contain:
 
@@ -146,9 +147,29 @@ rtk proxy node /absolute/context-policy/src/codex-context-policy.mjs read_contex
 
 For the continuation request, set `reference` to the returned opaque `full_result` and `cursor` to `next_cursor`. Follow every page required by the task. An omission's own `cursor` requests that complete oversized unit; this explicit whole retrieval may exceed the routine 8000-byte JSON envelope. Binary files use labelled base64; binary changes preserve a base64 before/after pair. UTF-8 evidence retains BOM, CRLF and exact SHA-256. A trial may explicitly supply its isolated `state_dir`; the normal default is `~/.codex/codex-context-policy`.
 
-Scopes are `{"kind":"worktree"}` or `{"kind":"range","base":"<full-commit-id>","head":"<full-commit-id>"}`. Range selection reads immutable target blobs. Worktree changes compare raw HEAD/index/working bytes, not filter-normalized Git status; renames may be deletion/addition. Literal references remain partial and require broader exploration. Preserve `status`, `exit_code` and `stderr`; non-UTF8 utility diagnostics are explicitly labelled base64. Missing task state, changed bytes/modes or stale epochs require ordinary exploration or fresh selection. Seven-day result expiry is logical; physical result cleanup follows phase 3.
+Scopes are `{"kind":"worktree"}` or `{"kind":"range","base":"<full-commit-id>","head":"<full-commit-id>"}`. Range selection reads immutable target blobs. Worktree changes compare raw HEAD/index/working bytes, not filter-normalized Git status; renames may be deletion/addition. Literal references remain partial and require broader exploration. Preserve `status`, `exit_code` and `stderr`; non-UTF8 utility diagnostics are explicitly labelled base64. Missing task state, changed bytes/modes or stale epochs require ordinary exploration or fresh selection. Schema-1 references require fresh selection. Seven-day result expiry is logical; enabled recording opportunistically prunes small owned artifacts. Explicit recovery returns the selected result before a separate bounded sweep of at most one expired sibling. Off/idle and large traversals have no physical cleanup guarantee; unknown partial files are preserved.
 
 Automatic preparation runs before generation without waiting for skill selection. It shares a two-second deadline, including the audit boundary, and at most 6000 UTF-8 bytes/approximately 2000 tokens. Explicit code paths/symbols seed code context; documentation requests seed docs/instructions. Automatic review accepts affirmative whole-worktree requests and gathers dependencies from every changed-file inventory page; narrowed, staged or range prompts conservatively retain baseline. Failed or incomplete preparation never runs checks or installs packages. Proposal metadata does not certify delivery or reusable context.
+
+## Run Declared Checks
+
+Send a current private task request to `run_project_checks` through ordinary native tool permissions:
+
+```json
+{"repo_root":"/absolute/project","session_id":"current-native-session","checks":["test"],"timeout_ms":120000}
+```
+
+```sh
+rtk proxy node /absolute/context-policy/src/codex-context-policy.mjs run_project_checks < /private/check-request.json
+```
+
+Checks come from nonempty `package.json` scripts and an unambiguous npm/Yarn declaration or lockfile. This module also exposes its documented `gate` when no manifest exists. README prose, extensions and unknown names are never interpreted as commands. pnpm/Bun are rejected because their no-install behavior is unverified. Yarn declaration recognition is tested; actual Yarn execution remains unverified. The wrapper invokes an installed manager without installing dependencies; declared scripts retain their ordinary powers and native permission boundary.
+
+The entire requested list is admitted before execution, then the current manager, lockfiles and declaration are checked again before each member. A changed admission retains completed results and marks remaining members `executed:false`. With the default 8000-byte budget, group at most four checks; larger groups must be requested separately. `byte_limit` may lower the budget; `timeout_ms` must be 1–120000 and applies to the batch.
+
+Explicit operation stdout is one structured JSON result, with no duplicated diagnostic on stderr. Check results are an array. Preserve `status`, actual `exit_code`, `error`, `output_complete`, and any `result_error`; empty stdout is never PASS. A timeout can retain an already observed manager exit, including zero, while status and the CLI remain unsuccessful. Missing executables/denials retain diagnostics and a portable nonzero exit. Capture is bounded to 8 MB across both streams; overflow is incomplete and unsuccessful. Full output uses exact UTF-8/BOM or labelled base64 whole units. Private persistence/snapshot failures remain visible and never erase observed execution results.
+
+Check artifacts describe their original execution revision and remain recoverable after repository edits within the same task identity. Changed turn, objective, epoch, permissions or source versions invalidate them. Code references always require current repository evidence. Cancellation handles ordinary POSIX process groups and bounds inherited-pipe settlement; escaped groups and SIGKILL are not contained. Windows and native host delivery of HUP/QUIT remain unverified. Command rewriting returns passthrough for every candidate until actual native permission/error equivalence is established.
 
 ## Measure and Promote a Context Family
 

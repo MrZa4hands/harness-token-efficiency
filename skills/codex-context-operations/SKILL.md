@@ -50,3 +50,9 @@ It returns an array of check envelopes and a nonzero CLI exit on failure. Keep
 stdout. Output previews identify omissions; retrieve full stdout/stderr whole
 units with `read_context`. Group only checks that fit the routine response budget;
 request them separately when needed. No dependency installation is performed.
+Only npm/Yarn declarations are admitted; pnpm/Bun remain unsupported. Revalidate
+the current declaration before every check. Explicit CLI stdout is structured JSON
+without duplicate stderr previews. Historical check output retains its original
+execution identity after repository edits; changed task/permission/source identity
+requires ordinary recovery. Timeout/cancellation status is unsuccessful even when
+an already observed manager exit is zero.
