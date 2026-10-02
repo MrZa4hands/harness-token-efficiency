@@ -155,16 +155,23 @@ export async function runProjectChecks(request) {
   for (const check of selected) pageContextResult(projectCheckBundle(check, { stdout: Buffer.from([255]),
     stderr: Buffer.from([255]), status: 'cancelled', exit_code: 130, error: 'x'.repeat(512), output_complete: false }, task),
   '0'.repeat(64), null, perCheckLimit - 256);
-  const results = []; let halted = false;
+  const results = []; let halted = false; let haltReason = 'earlier result/state failure';
   for (const check of selected) {
     if (!halted && !signal.aborted) {
-      try { task = await refreshCheckTask(request, task, await captureRepositorySnapshot(root)); }
-      catch (error) { if (!results.length) throw error; halted = true; }
+      try {
+        task = await refreshCheckTask(request, task, await captureRepositorySnapshot(root));
+        const current = (await detectDeclaredChecks(root)).find(declaration => declaration.name === check.name);
+        if (!current || current.command !== check.command || JSON.stringify(current.args) !== JSON.stringify(check.args))
+          throw new Error('Project checks declaration changed; check not executed.');
+      } catch (error) {
+        if (!results.length) throw error; halted = true;
+        haltReason = error.message?.startsWith('Project checks ') ? error.message.slice(0, 240) : 'earlier result/state failure';
+      }
     }
     if (halted || signal.aborted) {
       const status = signal.aborted ? signal.reason?.name === 'TimeoutError' ? 'timeout' : 'cancelled' : 'error';
       results.push({ ...projectCheckBundle(check, { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), status,
-        exit_code: signal.aborted ? 130 : 1, error: 'Project check not executed: ' + (signal.aborted ? status : 'earlier result/state failure'),
+        exit_code: signal.aborted ? 130 : 1, error: 'Project check not executed: ' + (signal.aborted ? status : haltReason),
         output_complete: false }, task), entries: [], executed: false, coverage_status: 'partial' });
       continue;
     }

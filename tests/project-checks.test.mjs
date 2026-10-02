@@ -1,9 +1,8 @@
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, realpath, writeFile, readFile, access, symlink, stat, readdir, chmod } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdtemp, writeFile, readFile, access, symlink, stat, readdir, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { execFileSync, spawnSync, spawn } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { captureContextTask, saveContextTask, readContextTask } from '../src/context-state.mjs';
 import { readContext } from '../src/context-results.mjs';
 
@@ -11,39 +10,8 @@ const projectChecks = await import('../src/project-checks.mjs').catch(error => {
   if (error.code === 'ERR_MODULE_NOT_FOUND' && error.message.includes('/src/project-checks.mjs')) return {};
   throw error;
 });
-const temporaryRoot = await realpath(await mkdtemp(join(tmpdir(), 'project-check-tests-')));
-after(() => assert.equal(spawnSync('trash', [temporaryRoot]).status, 0));
-const gitEnvironment = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
-  GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
-const diagnostic = '\uFEFFdiagnostic ☃: intentional failure\n' + 'protected failure details\n'.repeat(1000);
-
-async function checksFixture() {
-  const root = await mkdtemp(join(temporaryRoot, 'repository-'));
-  const git = args => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd: root, env: gitEnvironment });
-  git(['-c', 'init.templateDir=', 'init', '--initial-branch=fixture-main']);
-  git(['config', 'core.excludesFile', '/dev/null']); git(['config', 'core.attributesFile', '/dev/null']);
-  await writeFile(join(root, '.gitignore'), '.check-*\n');
-  await writeFile(join(root, 'fail.mjs'), "import {appendFileSync} from 'node:fs'; appendFileSync('.check-ran','ran\\n');\n" +
-    'process.stderr.write(' + JSON.stringify(diagnostic) + ', () => process.exit(7));\n');
-  await writeFile(join(root, 'empty.mjs'), 'process.exit(7);\n');
-  await writeFile(join(root, 'slow.mjs'), "import {writeFileSync} from 'node:fs'; writeFileSync('.check-ready','ready');\n" +
-    "process.on('SIGTERM',()=>{}); setTimeout(()=>{writeFileSync('.check-late','leaked');process.exit(0)},2000);\n");
-  const manifest = { name: 'declared-check-fixture', private: true, packageManager: 'npm@11.19.1',
-    scripts: { test: 'node fail.mjs', empty: 'node empty.mjs', slow: 'node slow.mjs' } };
-  await writeFile(join(root, 'package.json'), JSON.stringify(manifest));
-  git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture: declared checks']);
-  const state = await captureContextTask({ cwd: root, session_id: 'checks-session', turn_id: 'checks-turn',
-    hook_event_name: 'UserPromptSubmit', prompt: 'Run the declared test check.', permission_mode: 'default' }, null);
-  const stateDir = join(root, '..', 'state-' + root.split('/').at(-1)); assert.equal(await saveContextTask(stateDir, state), true);
-  return { root, manifest, state, stateDir, request: { repo_root: root, state_dir: stateDir, session_id: state.session_id, checks: ['test'] } };
-}
-
-async function refreshChecksFixture(fixture) {
-  const previous = await readContextTask(fixture.request.state_dir, fixture.root, fixture.request.session_id);
-  const task = await captureContextTask({ cwd: fixture.root, session_id: previous.session_id, turn_id: previous.turn_id,
-    hook_event_name: 'UserPromptSubmit', prompt: previous.active_request.text, permission_mode: 'default' }, previous);
-  assert.equal(await saveContextTask(fixture.request.state_dir, task), true);
-}
+import { checksFixture, refreshChecksFixture, projectCheckTemporaryRoot as temporaryRoot,
+  projectCheckGitEnvironment as gitEnvironment, projectCheckDiagnostic as diagnostic } from './project-checks.fixture.mjs';
 
 // Publication must not bless an earlier execution with a concurrently changed turn or permission identity.
 test('check_publication_rejects_changed_execution_identity', async () => {

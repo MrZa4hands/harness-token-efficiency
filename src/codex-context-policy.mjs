@@ -311,9 +311,8 @@ if (policyEntryPath && import.meta.url === pathToFileURL(policyEntryPath).href) 
           /^(?:Project checks|Context inventory) [A-Za-z0-9 ;./-]{1,240}$/.test(error.message) ? error.message :
           'Context CLI request rejected; check repository and private task.' };
     }
-    process.stdout.write(JSON.stringify(result) + '\n');
+    process.stdout.write(JSON.stringify(result));
     const outputs = Array.isArray(result) ? result : [result];
-    for (const output of outputs) if (output.stderr) process.stderr.write(output.stderr + '\n');
     process.exitCode = outputs.find(output => output.exit_code !== 0)?.exit_code ??
       (outputs.some(output => output.status !== 'ok') ? 1 : 0);
   } else if (process.argv[2] !== 'hook') {
