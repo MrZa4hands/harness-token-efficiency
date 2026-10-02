@@ -52,6 +52,35 @@ test('promotion_rejects_canonical_policy_expansion_before_any_write', async () =
   assert.equal((await readContextPolicyConfig(root)).mode, 'shadow');
 });
 
+// A qualifying report cannot authorize replacing a policy that the runtime rejects.
+test('promotion_rejects_runtime_invalid_policy_before_any_write', async () => {
+  const root = await mkdtemp(join(temporary, 'invalid-promotion-')); const directory = join(root, '.codex');
+  assert.equal((await updateContextPolicyInstall({ repo_root: root, source_root: resolve('.'), action: 'install', apply: true })).error, null);
+  const config = { mode: 'enforce', jev_enabled: false }; const path = join(directory, 'codex-context-policy.json');
+  const input = { client_version: '0.159.2', model: 'fixture-main-model', reasoning_effort: 'medium' };
+  const questions = JSON.parse(await readFile(resolve('config/jev-questions.json'), 'utf8'));
+  const versions = await readContextSourceVersions(resolve('.'), { input, config, questions });
+  const report = comparePilotRuns(createContextPilotRuns(versions));
+  assert.ok(report.promotions.some(row => row.family === 'code_context' && row.variant === 'deterministic'));
+  await writeFile(join(directory, 'codex-context-policy-coverage.json'), JSON.stringify({ client_version: input.client_version,
+    events: { UserPromptSubmit: 'supported' } }), { mode: 0o600 });
+  const reportPath = join(root, 'qualified-report.json'); await writeFile(reportPath, JSON.stringify(report), { mode: 0o600 });
+  const storedReport = join(directory, 'codex-context-promotion-code_context-deterministic.json');
+  for (const invalid of [{ operations: 'invalid' }, { operations: ['enforce'] }, { operations: { code_context: 'invalid' } },
+    { promotions: 'invalid' }, { promotions: { code_context: { hybrid: { report_sha256: 'invalid' } } } },
+    { jev_model: 'invalid model' }, { jev_actual_model: 42 }]) {
+    const text = JSON.stringify({ ...config, ...invalid }); await writeFile(path, text, { mode: 0o600 });
+    for (const extra of [[], ['--apply']]) {
+      const child = spawnSync(process.execPath, [manager, 'promote', '--repo', root, '--report', reportPath,
+        '--family', 'code_context', '--variant', 'deterministic', ...extra], { encoding: 'utf8', timeout: 3000 });
+      assert.equal(child.status, 1, 'Invalid runtime policy must reject promotion: ' + JSON.stringify(invalid));
+      const result = JSON.parse(child.stdout); assert.equal(result.changed, false); assert.deepEqual(result.files, []);
+      assert.ok(result.error); assert.equal(await readFile(path, 'utf8'), text);
+      assert.equal(await lstat(storedReport).catch(() => null), null);
+    }
+  }
+});
+
 // Persisted qualification must distinguish actual automatic context consumers from evidence-only families.
 test('promotion_discloses_qualification_only_families_and_unchanged_global_cap', async () => {
   const root = await mkdtemp(join(temporary, 'disclosure-')); const directory = join(root, '.codex');

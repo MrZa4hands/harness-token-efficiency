@@ -299,6 +299,11 @@ export async function promoteContextPolicy(options) {
       if ((policyBefore.mode & 0o077) !== 0) throw new Error('Context promotion policy must be private.');
       const config = parseInstallObject(policyBefore.text, null);
       if (!['off', 'shadow', 'enforce'].includes(config?.mode) || typeof config.jev_enabled !== 'boolean') throw new Error('Context promotion policy rejected.');
+      const { readContextPolicyConfig, readContextSourceVersions } = await import('../src/codex-context-policy.mjs');
+      const current = await readContextPolicyConfig(root);
+      if (['mode', 'jev_enabled', 'jev_model', 'jev_actual_model'].some(key => current[key] !== config[key]) ||
+          !isDeepStrictEqual(current.operations, config.operations ?? {}) ||
+          !isDeepStrictEqual(current.promotions ?? {}, config.promotions ?? {})) throw new Error('Context promotion policy rejected.');
       const file = await open(options.report_path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); let text;
       try {
         const stat = await file.stat();
@@ -314,7 +319,6 @@ export async function promoteContextPolicy(options) {
       if (coverage?.events?.UserPromptSubmit !== 'supported' || coverage.client_version !== measuredVersions.client_version)
         throw new Error('Context promotion current native coverage is unverified.');
       const questions = JSON.parse(await readFile(join(receipt.source_root, 'config/jev-questions.json'), 'utf8'));
-      const { readContextSourceVersions } = await import('../src/codex-context-policy.mjs');
       const versions = await readContextSourceVersions(receipt.source_root, { config, questions, input: {
         client_version: coverage.client_version, model: measuredVersions.main_model, reasoning_effort: measuredVersions.reasoning_effort } });
       const candidateConfig = { ...config, mode: 'enforce', jev_enabled: options.variant === 'hybrid' && config.jev_enabled,
