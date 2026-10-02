@@ -6,6 +6,7 @@ import { realpath, lstat, mkdir, open, rename, unlink, opendir, readlink } from 
 import { resolve, join, dirname, relative, isAbsolute } from 'node:path';
 import jevQuestions from '../config/jev-questions.json' with { type: 'json' };
 import { validateJevContextResponse } from './jev-client.mjs';
+import { pruneExpiredContextResult } from './context-result-expiry.mjs';
 
 /** @typedef {{session_id:string,turn_id:string,repo_root:string,repo_revision:string,repo_head?:string|null,inventory:string[],
  * request_hash:string,recent_requests:{text:string,hash:string}[],protected_requirements:string[],
@@ -50,13 +51,13 @@ function validateContextState(state) {
   return state;
 }
 
-async function readPrivateContextFile(path) {
+async function readPrivateContextFile(path, byteLimit = 1_000_000, signal) {
   let file;
   try {
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const stat = await file.stat();
-    if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.size > 1_000_000) throw new Error('Unsafe private context file');
-    return await file.readFile('utf8');
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid() || stat.size > byteLimit) throw new Error('Unsafe private context file');
+    return await file.readFile({ encoding: 'utf8', signal });
   } catch (error) { if (error.code === 'ENOENT') return null; throw new Error('Context task state rejected; baseline retained.'); }
   finally { await file?.close(); }
 }
@@ -391,9 +392,16 @@ export async function recordContextDecision(stateDir, state, decision, signal) {
     for await (const entry of await opendir(directory)) {
       if (cleanupSignal.aborted) break;
       const name = entry.name;
-      if (!/^decision-[a-f0-9-]{36}\.json$/.test(name)) continue;
+      const result = /^result-([a-f0-9]{64})\.json$/.exec(name);
+      const temporaryResult = /^\.result-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.tmp$/.test(name);
+      if (!result && !temporaryResult && !/^decision-[a-f0-9-]{36}\.json$/.test(name)) continue;
       const path = join(directory, name);
-      let old; try { old = JSON.parse(await readPrivateContextFile(path)); } catch { continue; }
+      if (result || temporaryResult) {
+        await pruneExpiredContextResult(path, metadata.repo_hash, sessionHash, cleanupSignal);
+        continue;
+      }
+      let old; let text;
+      try { text = await readPrivateContextFile(path, 1_000_000, cleanupSignal); old = JSON.parse(text); } catch { continue; }
       if (cleanupSignal.aborted) break;
       if (old && old.schema_version === 1 && old.session_hash === sessionHash && old.repo_hash === metadata.repo_hash &&
           Date.parse(old.updated_at) < Date.now() - 7 * 86400000) await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });

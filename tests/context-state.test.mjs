@@ -165,8 +165,7 @@ test('shadow_hook_records_isolated_decisions_without_injection', async () => {
 
   const alternate = await mkdtemp(join(temporaryRoot, 'alternate-source-'));
   await mkdir(join(alternate, 'src')); await mkdir(join(alternate, 'config'));
-  await Promise.all(['src/codex-context-policy.mjs', 'src/context-state.mjs', 'src/jev-client.mjs', 'src/context-credentials.mjs',
-    'src/repository-context.mjs', 'src/context-results.mjs', 'src/context-prefetch.mjs', 'src/context-promotion.mjs',
+  await Promise.all([...(await readdir(resolve('src'))).filter(path => path.endsWith('.mjs')).map(path => 'src/' + path),
     'config/jev-questions.json', 'config/hooks.template.json', 'config/context-policy.template.json']
     .map(path => copyFile(resolve(path), join(alternate, path))));
   await appendFile(join(alternate, 'src/context-state.mjs'), '\n// Fixture policy implementation fingerprint change.\n');
