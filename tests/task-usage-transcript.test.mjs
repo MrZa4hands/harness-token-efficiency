@@ -28,6 +28,23 @@ async function capture(name, records) {
   const path = join(root, name); await fs.writeFile(path, records.map(JSON.stringify).join('\n') + '\n', { mode: 0o600 }); return path;
 }
 
+// A reused worker can bill follow-up corrections under a second admitted root turn.
+test('task_transcript_binds_multiple_task_turns_without_prior_history', async () => {
+  const records = rows();
+  records.push({ type: 'turn_context', payload: { turn_id: 'correction', root_turn_id: 'follow-up', model: 'fixture-model', effort: 'high' } },
+    { type: 'token_usage_record', payload: { thread_id: 'worker', session_id: 'root', root_turn_id: 'follow-up',
+      turn_id: 'correction', response_id: 'correction-response', usage: usage(5, 2), thread_token_usage: usage(35, 12) } });
+  const path = await capture('multi-turn.jsonl', records);
+  const { root_turn_id, ...identities } = options;
+  const result = await readTaskUsageTranscript(path, { ...identities, root_turn_ids: ['task-turn', 'follow-up'] });
+  assert.equal(result.available, true);
+  assert.deepEqual(result.responses.map(row => row.response_id), ['child-response', 'correction-response']);
+  assert.equal(result.final_usage.total_tokens, 47);
+  for (const turns of [[], ['task-turn', 'task-turn'], ['task-turn', 'missing']]) {
+    assert.equal((await readTaskUsageTranscript(path, { ...identities, root_turn_ids: turns })).available, false);
+  }
+});
+
 // Counting inherited parent responses would inflate the worker lower bound.
 test('task_transcript_excludes_inherited_parent_responses', async () => {
   const result = await readTaskUsageTranscript(await capture('worker.jsonl', rows()), options);

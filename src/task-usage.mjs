@@ -1,5 +1,6 @@
 import { collectCodexUsage, collectJevUsage } from './pilot-evaluation.mjs';
 import { createHash } from 'node:crypto';
+import { taskRootTurnIds } from './task-usage-transcript.mjs';
 
 const fields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'];
 const usageValid = value => collectCodexUsage([{ session_id: 'validation', thread_id: 'validation', counter_epoch: '0', usage: value }], '0.159.2').available;
@@ -16,8 +17,9 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
     known_lower_bound: { codex_total_tokens: null, jev_total_tokens: null }, cost: null,
     limitations: ['Native exhaustive worker closure unavailable.', 'Native exhaustive provider closure unavailable.'], source_hashes: [] };
   try {
+    const rootTurns = taskRootTurnIds(manifest); const admittedRootTurns = new Set(rootTurns);
     if (manifest?.manifest_version !== 1 || manifest.client_version !== '0.159.2' ||
-        !['task_id', 'run_id', 'main_model', 'reasoning_effort', 'root_session_id', 'root_turn_id'].every(key => identityValid(manifest[key])) ||
+        !['task_id', 'run_id', 'main_model', 'reasoning_effort', 'root_session_id'].every(key => identityValid(manifest[key])) ||
         !['captures', 'intervals', 'decisions'].every(key => Array.isArray(manifest[key])) ||
         !Array.isArray(captures) || !Array.isArray(decisions) ||
         !Array.isArray(manifest.closure?.worker_source_refs) || !Array.isArray(manifest.closure?.provider_source_refs)) throw new Error();
@@ -32,7 +34,8 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
     for (const descriptor of manifest.captures) {
       const capture = captureMap.get(descriptor?.thread_id);
       if (!hashValid(descriptor?.sha256) || !capture || descriptor.sha256 !== capture.source_sha256 ||
-          capture.root_session_id !== manifest.root_session_id || capture.root_turn_id !== manifest.root_turn_id ||
+          capture.root_session_id !== manifest.root_session_id ||
+          !taskRootTurnIds(capture).some(turn => admittedRootTurns.has(turn)) ||
           capture.client_version !== manifest.client_version || capture.main_model !== manifest.main_model ||
           capture.reasoning_effort !== manifest.reasoning_effort) { result.limitations.push('Task capture identity or source unavailable.'); continue; }
       admitted.set(capture.thread_id, capture); result.source_hashes.push(capture.source_sha256);
@@ -52,8 +55,10 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         const end = records.findIndex(row => row.response_id === interval.end_response_id);
         if (start < -1 || interval.start_response_id !== null && start === -1 || end <= start) throw new Error();
         const selected = records.slice(start + 1, end + 1);
+        if (manifest.root_turn_ids !== undefined && !identityValid(interval.turn_id)) throw new Error();
         if (JSON.stringify(selected.map(row => row.response_id)) !== JSON.stringify(interval.response_ids) ||
-            selected.some(row => row.root_turn_id !== manifest.root_turn_id ||
+            selected.some(row => !admittedRootTurns.has(row.root_turn_id) ||
+              interval.turn_id !== undefined && row.turn_id !== interval.turn_id ||
               !capture.responses.some(response => response.response_id === row.response_id) || !usageValid(row.usage) ||
               used.has(JSON.stringify([capture.thread_id, row.response_id]))) ||
             !sameUsage(records[end].thread_usage, interval.final_usage)) throw new Error();

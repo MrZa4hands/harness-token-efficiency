@@ -36,6 +36,7 @@ export async function loadPrivateTaskMeasurement(manifestPath, captureByteLimit 
       if (!capturePaths[index]) { captures.push({ available: false }); continue; }
       const capture = await readTaskUsageTranscript(capturePaths[index], { client_version: manifest.client_version,
         thread_id: descriptor.thread_id, root_session_id: manifest.root_session_id, root_turn_id: manifest.root_turn_id,
+        root_turn_ids: manifest.root_turn_ids,
         byte_limit: Math.min(64_000_000, captureByteLimit - snapshotBytes) });
       if (!Number.isSafeInteger(capture.snapshot_bytes) || capture.snapshot_bytes < 0) {
         throw new Error('Task usage transcript snapshot or budget rejected.');

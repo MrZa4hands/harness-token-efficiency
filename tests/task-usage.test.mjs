@@ -32,6 +32,39 @@ function inputs() {
 }
 const collect = ({ manifest, captures, decisions }) => collectCompleteTaskUsage(manifest, captures, decisions);
 
+// Corrections and a reused worker contribute once, while the resumed prefix stays outside the task.
+test('task_usage_accounts_two_turns_with_reused_worker', () => {
+  const value = inputs();
+  delete value.manifest.root_turn_id;
+  value.manifest.root_turn_ids = ['task', 'correction'];
+  for (const capture of value.captures) {
+    delete capture.root_turn_id; capture.root_turn_ids = ['task', 'correction'];
+    const previous = capture.responses[0];
+    const next = { response_id: capture.thread_id + '-correction', turn_id: capture.thread_id + '-follow-up',
+      root_turn_id: 'correction', usage: usage(5, 2),
+      thread_usage: usage(previous.thread_usage.input_tokens + 5, previous.thread_usage.output_tokens + 2) };
+    capture.responses.push(next); capture.all_responses = [...capture.all_responses.filter(row => row !== next), next];
+    const first = value.manifest.intervals.find(row => row.thread_id === capture.thread_id);
+    first.turn_id = previous.turn_id;
+    value.manifest.intervals.push({ thread_id: capture.thread_id, turn_id: next.turn_id,
+      start_response_id: previous.response_id, end_response_id: next.response_id, initial_usage: previous.thread_usage,
+      final_usage: next.thread_usage, response_ids: [next.response_id] });
+  }
+  value.manifest.intervals.push(structuredClone(value.manifest.intervals[2]));
+  const result = collect(value);
+  assert.equal(result.known_lower_bound.codex_total_tokens, 154);
+  assert.equal(result.task_coverage_verified, false); assert.equal(result.codex_usage.total_tokens, null);
+  const missing = structuredClone(value); missing.manifest.root_turn_ids = ['task'];
+  assert.equal(collect(missing).known_lower_bound.codex_total_tokens, 140);
+  for (const turns of [[], ['task', 'task']]) {
+    const invalid = structuredClone(value); invalid.manifest.root_turn_ids = turns;
+    assert.equal(collect(invalid).known_lower_bound.codex_total_tokens, null);
+  }
+  const foreign = structuredClone(value); foreign.manifest.intervals[2].turn_id = 'unbound';
+  foreign.manifest.intervals.pop();
+  assert.equal(collect(foreign).known_lower_bound.codex_total_tokens, 147);
+});
+
 // Native immutable decisions use identity hashes, including rejected billed queries.
 test('task_usage_admits_native_hashed_decisions_without_rewriting_sources', () => {
   const value = inputs(); const row = value.decisions[0].records[0];

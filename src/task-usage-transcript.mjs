@@ -8,6 +8,15 @@ const fields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens
 const validIdentity = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
 const validUsage = usage => collectCodexUsage([{ session_id: 'validation', thread_id: 'validation', counter_epoch: '0', usage }], '0.159.2').available;
 
+/** Admit ordered unique root task turns; singular identities retain the shipped one-turn contract. */
+export function taskRootTurnIds(value) {
+  const turns = value?.root_turn_ids ?? (validIdentity(value?.root_turn_id) ? [value.root_turn_id] : []);
+  if (!Array.isArray(turns) || !turns.length || !turns.every(validIdentity) || new Set(turns).size !== turns.length ||
+      value.root_turn_ids !== undefined && value.root_turn_id !== undefined &&
+      (turns.length !== 1 || turns[0] !== value.root_turn_id)) throw new Error('Task turn membership rejected.');
+  return turns;
+}
+
 /** Resolve private task references inside the canonical manifest directory; reject every linked or nonprivate component. */
 export async function resolvePrivateTaskReference(directory, reference) {
   try {
@@ -75,7 +84,8 @@ export async function readTaskUsageTranscript(path, options) {
     worker_coverage_verified: false, provider_coverage_verified: false, limitations: ['Task usage transcript unavailable.'] };
   try {
     if (!options || options.client_version !== '0.159.2' ||
-        !['thread_id', 'root_session_id', 'root_turn_id'].every(key => validIdentity(options[key]))) return unavailable;
+        !['thread_id', 'root_session_id'].every(key => validIdentity(options[key]))) return unavailable;
+    const rootTurns = taskRootTurnIds(options); const admittedTurns = new Set(rootTurns);
     const snapshot = await readPrivateTaskSnapshot(path, Math.min(64_000_000, options.byte_limit ?? 64_000_000), true);
     // Safe bytes still consume the input budget when their native records cannot be normalized.
     unavailable.snapshot_bytes = snapshot.snapshot_bytes; unavailable.source_sha256 = snapshot.source_sha256;
@@ -110,10 +120,11 @@ export async function readTaskUsageTranscript(path, options) {
       if (fields.some(key => p.thread_token_usage[key] < p.usage[key])) return unavailable;
       seen.set(p.response_id, record); allResponses.push(record); previous = record.thread_usage;
     }
-    const responses = allResponses.filter(row => row.root_turn_id === options.root_turn_id);
+    const responses = allResponses.filter(row => admittedTurns.has(row.root_turn_id));
     if (!responses.length) return unavailable;
+    if (rootTurns.some(turn => !responses.some(row => row.root_turn_id === turn))) return unavailable;
     const settings = responses.map(row => contexts.get(row.turn_id));
-    if (settings.some(context => !context || context.root_turn_id !== options.root_turn_id ||
+    if (settings.some((context, index) => !context || context.root_turn_id !== responses[index].root_turn_id ||
         !validIdentity(context.model) || !validIdentity(context.effort) ||
         context.model !== settings[0].model || context.effort !== settings[0].effort)) return unavailable;
     const first = responses[0]; const initial = Object.fromEntries(fields.map(key => [key, first.thread_usage[key] - first.usage[key]]));
@@ -122,9 +133,10 @@ export async function readTaskUsageTranscript(path, options) {
     const taskRecords = rows.flatMap((row, index) => row.type === 'event_msg' &&
       ['task_started', 'task_complete'].includes(row.payload?.type) && turnIds.has(row.payload.turn_id) ?
       [{ record_index: index, type: row.payload.type, turn_id: row.payload.turn_id,
-        root_turn_id: row.payload.root_turn_id ?? options.root_turn_id, completed_at: row.payload.completed_at ?? null }] : []);
+        root_turn_id: row.payload.root_turn_id ?? contexts.get(row.payload.turn_id)?.root_turn_id ?? null,
+        completed_at: row.payload.completed_at ?? null }] : []);
     const { byte_limit, ...identities } = options;
-    return { available: true, ...identities, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
+    return { available: true, ...identities, root_turn_ids: rootTurns, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
       main_model: settings[0].model, reasoning_effort: settings[0].effort,
       parent_thread_id: metadata[0].parent_thread_id ?? null, agent_path: metadata[0].agent_path ?? null,
       initial_usage: initial, final_usage: responses.at(-1).thread_usage, responses, all_responses: allResponses,

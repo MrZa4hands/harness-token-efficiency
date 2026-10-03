@@ -195,3 +195,82 @@ R4/R7 map to Tasks 1–4; R5 to Task 5; R6 to Task 6; existing R1/R2/R3/R8 behav
 **Status:** Roe authorized native inline execution on 2026-10-03. Tasks 0–6, native/historical validation, both mandated reviews and every confirmed correction are complete. Corrected source passes 185/185; release documentation describes the actual delivered contract. The first review has complete coverage and false convergence at its three-fix-cycle limit. Final documentation-head checks and normal develop merge are the remaining delivery steps; their actual evidence is recorded in the private execution ledger. Retain this worktree and feature branches while ignored evidence needs hash-verified archival. No new paired cohort or Jev activation was started.
 
 **Calibration refinement:** Task 1 found no authenticated exhaustive native closure contract. Task 3 therefore cannot validate closure references as exhaustive evidence, and complete totals remain null regardless of caller flags/references. No positive synthetic closure fixture substitutes for this missing contract. Independently verified interval/billing bounds remain useful. Final-source historical remeasurement covers all 189 retained captures, with 187 verified final-root-turn Codex bounds; earlier setup/follow-up turns remain separate. The Task 6 production behavior already passed, so its regression is an honest characterization rather than a claimed behavioral repair. The checklist above preserves the original approved procedure; this status and [validation](../validation/task-measurement.md) record executed scope and justified unsupported outcomes.
+
+## Approved Review Refinements: Execution Follow-up
+
+The user approved the updated engineering review (R1–R5) and requested implementation.
+PR #6 already implemented Tasks 0–7; retain its calibration, review history and limitations.
+This follow-up starts at verified develop `b0c405a056d3abea9ce1bae106eb5465690db31c`,
+branch `feat/task-measurement-review-refinements`, sibling worktree
+`codex-token-efficiency-worktrees/task-measurement-refinements`, PR base `develop`.
+The reviewed source plan is retained privately with SHA-256
+`66319c2e8d88ef01161aa322170e0e07ef49e9cfb14612257ba505705df71f5a`.
+Preserve all five runtime file responsibilities, existing native calibration, original grades,
+provider proof kinds, private evidence and the exact two-review delivery sequence.
+
+## Task 8: Bind Every Admitted Task Turn (R1)
+
+**Produces:** ordered nonempty unique `root_turn_ids` in manifest/capture; each new interval
+binds `turn_id` to source records. Preserve legacy singular manifests as one-turn contracts.
+**Consumes:** calibrated native `root_turn_id`, response/turn/session identity and counters.
+
+- [ ] Write and observe meaningful RED tests for two turns with a correction and reused worker;
+  exclude prior unrelated work, reject duplicate/unbound turns and conflicting interval membership.
+- [ ] Implement minimum reader/accounting changes; response/decision identities count once.
+  Complete coverage remains unavailable because the native adapter cannot enumerate closure.
+- [ ] Run focused transcript/accounting/CLI tests, observe GREEN, and commit the behavior.
+
+## Task 9: Stream Descriptor-Bound Inputs Within Shared Limits (R3/R5)
+
+**Produces:** descriptor-bound streamed JSONL records, original row hashes and shared budgets.
+**Consumes:** validated canonical private paths; preserve UTF-8 bytes including LF/CRLF.
+
+- [ ] Write and observe RED for line/record/identity boundaries and cumulative invocation limits.
+  Test exact caps and cap+1, many tiny records, duplicate flood, repeated files, stream failure,
+  truncation, in-place rewrite and path replacement, with descriptor cleanup.
+- [ ] Read/hash/parse/restat the same descriptor; discard raw bodies immediately and read files
+  sequentially. No whole-file transcript split/map or pathname reopening after admission.
+- [ ] Enforce 1,000,000 bytes/line, 100,000 parsed records/file, 250,000 records/invocation,
+  100,000 retained unique response/decision identities/invocation, 128 captures and 128 decision
+  files. Preserve 64,000,000 bytes/transcript, 512,000,000 aggregate transcript bytes and
+  4,000,000 manifest/decision/output bytes. Diagnostic JSONL uses the same line/record caps.
+- [ ] Use bounded maps/sets for response membership and interval lookup; no disk index or dependency.
+  Invalid evidence cannot erase independent valid bounds; exceeded budgets never certify totals.
+- [ ] Run focused tests, observe GREEN, and commit the behavior.
+
+## Task 10: Preserve Original-Byte Diagnostic Provenance (R2)
+
+**Produces:** `diagnosePilotEvidence(tasks, run_sources, assessments)` with each source
+`{row, run_row_sha256}`. **Consumes:** hashes including present LF/CRLF; a final unterminated
+row hashes only actual bytes. Preserve typed owner-attested proof validation from PR #6.
+
+- [ ] Observe RED for identical parsed objects with different whitespace/terminators and stale
+  assessments. Missing/invalid/conflicting annotations stay unknown; four primary buckets alone
+  reconcile omissions. `unassessed_attempt_count` counts missing annotations only, a subset of
+  unknown; invalid assessment count is independent diagnostic metadata.
+- [ ] Implement loader/source wrappers without mutating historical runs. Preserve legacy pure
+  callers if needed, but the loader must supply authoritative hashes separately from row fields.
+- [ ] Run focused diagnostics tests, observe GREEN, and commit.
+
+## Task 11: Save Optional Private Diagnostic Reports (R4)
+
+- [ ] Observe RED through the real CLI with `--output`: sanitized stdout only; full report in a
+  new owner-private 0600 file under a canonical 0700 directory using exclusive non-following open.
+- [ ] Refuse overwrite, linked/nonprivate destinations and write failures. Generic diagnostics;
+  no public success before a requested save succeeds. Valid unknown inputs exit 0; rejected
+  inputs/output exit 1. Test secret sentinels and immutable source hashes through the CLI.
+- [ ] Implement minimum output boundary; run focused tests, observe GREEN, and commit.
+
+## Task 12: Verify and Deliver the Follow-up
+
+- [ ] Reuse recorded calibrated native evidence; do not duplicate paid probes or rewrite the
+  189 historical rows/annotations. Rebind any new diagnostic artifact only from original bytes.
+- [ ] Run full gate; commit/push feature and open PR targeting `develop`.
+- [ ] First `$review`; fix all real findings with TDD, commit/push.
+- [ ] Second fresh `$superpowers:requesting-code-review` over merge-base through current head;
+  fix all confirmed findings with TDD, commit/push. Stop additional review passes.
+- [ ] `$document-release` audit/updates/validation, without its independent documentation reviewer;
+  record usage, limits, calibration reuse and test evidence; commit/push.
+- [ ] Verify final head/CI; merge normally into `develop`; never bypass protection or merge main.
+- [ ] Preserve private reviewed plan, ledger, tests and evidence with verified hashes before safe
+  nonforced worktree/feature-branch cleanup; retain any unsafe worktree or active hook references.
