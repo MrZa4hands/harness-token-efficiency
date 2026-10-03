@@ -18,6 +18,88 @@ const assessment = (run, cause, kind) => ({ run_id: run.run_id, task_id: run.tas
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'evidence-diagnostics-')));
 after(() => assert.equal(spawnSync('trash', [root]).status, 0));
 
+// Missing or malformed run identities cannot bind annotations or corrupt the missing-annotation subset.
+test('evidence_diagnostics_rejects_malformed_run_identities', async () => {
+  for (const run_id of [undefined, null, '', {}, 'x'.repeat(257)]) {
+    const run = { ...makeRun('valid'), run_id };
+    assert.throws(() => diagnosePilotEvidence(tasks, [run], [{}]), /identities rejected/);
+  }
+  const result = diagnosePilotEvidence(tasks, [makeRun('valid')], [{}]);
+  assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 1);
+  const dir = join(root, 'malformed-run'); await fs.mkdir(dir, { mode: 0o700 });
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('valid'), task_id: task.task_id }; delete run.run_id;
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+  await fs.writeFile(paths.runs, JSON.stringify(run) + '\n', { mode: 0o600 });
+  await fs.writeFile(paths.assessments, '{}\n', { mode: 0o600 });
+  await assert.rejects(loadPilotEvidenceDiagnostic(paths), /input rejected/);
+});
+
+// JSON key/set ordering does not turn equivalent attested causes into contradictory evidence.
+test('evidence_diagnostics_deduplicate_semantically_equal_annotations', async () => {
+  const run = makeRun('semantic-duplicate');
+  const a = assessment(run, 'answer_omission', 'delivered_evidence');
+  a.requirement_ids.push('docs/usage.md'); a.proof_sha256s.push('e'.repeat(64));
+  a.proofs.push({ sha256: 'e'.repeat(64), kind: 'delivery_trace' });
+  const b = Object.fromEntries(Object.entries(a).reverse());
+  b.requirement_ids = [...a.requirement_ids].reverse(); b.proof_sha256s = [...a.proof_sha256s].reverse();
+  b.proofs = [...a.proofs].reverse().map(p => ({ kind: p.kind, sha256: p.sha256 }));
+  const result = diagnosePilotEvidence([{ ...tasks[0], required_evidence: a.requirement_ids }], [run], [a, b]);
+  assert.equal(result.cause_counts.answer_omission, 1); assert.equal(result.invalid_assessment_count, 0);
+  const dir = join(root, 'semantic-duplicate'); await fs.mkdir(dir, { mode: 0o700 });
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  run.task_id = task.task_id; const bytes = JSON.stringify(run) + '\n';
+  for (const annotation of [a, b]) {
+    annotation.task_id = task.task_id; annotation.run_row_sha256 = hash(bytes);
+    annotation.requirement_ids = [task.required_evidence[0]];
+  }
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+  await fs.writeFile(paths.runs, bytes, { mode: 0o600 });
+  await fs.writeFile(paths.assessments, [a, b].map(JSON.stringify).join('\n') + '\n', { mode: 0o600 });
+  const loaded = await loadPilotEvidenceDiagnostic(paths);
+  assert.equal(loaded.cause_counts.answer_omission, 1); assert.equal(loaded.invalid_assessment_count, 0);
+});
+
+// The source wrapper, not a mutable field in a parsed run, is the provenance authority.
+test('evidence_diagnostics_use_source_hashes_and_reconcile_unknown_subsets', () => {
+  const runs = ['accepted', 'missing', 'stale', 'conflict'].map(id => makeRun(id));
+  const sources = runs.map(row => ({ row, run_row_sha256: hash(JSON.stringify(row) + '\n') }));
+  const annotations = [assessment({ ...runs[0], run_row_sha256: sources[0].run_row_sha256 }, 'answer_omission', 'delivered_evidence'),
+    assessment(runs[2], 'answer_omission', 'delivered_evidence'),
+    assessment({ ...runs[3], run_row_sha256: sources[3].run_row_sha256 }, 'answer_omission', 'delivered_evidence'),
+    assessment({ ...runs[3], run_row_sha256: sources[3].run_row_sha256 }, 'selection_or_delivery', 'delivery_trace')];
+  const before = JSON.stringify(sources);
+  const result = diagnosePilotEvidence(tasks, sources, annotations);
+  assert.deepEqual(result.cause_counts, { selection_or_delivery: 0, answer_omission: 1, corpus_scope_mismatch: 0, unknown: 3 });
+  assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 3);
+  assert.equal(Object.values(result.cause_counts).reduce((a, b) => a + b, 0), 4);
+  assert.equal(JSON.stringify(sources), before);
+});
+
+// Whitespace and present LF/CRLF belong to each original row hash; final EOF does not invent LF.
+test('evidence_diagnostics_bind_annotations_to_exact_original_terminated_bytes', async () => {
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('BYTE_PROVENANCE_PRIVATE'), task_id: task.task_id }; delete run.run_row_sha256;
+  const compact = JSON.stringify(run); const hashes = [];
+  for (const [index, bytes] of [compact + '\n', '  ' + compact + '  \n', compact + '\r\n', compact].entries()) {
+    const dir = join(root, 'terminator-' + index); await fs.mkdir(dir, { mode: 0o700 });
+    const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+    const annotation = { ...assessment({ ...run, run_row_sha256: hash(bytes) }, 'unknown', 'unverified'),
+      requirement_ids: [task.required_evidence[0]] };
+    await fs.writeFile(paths.runs, bytes, { mode: 0o600 });
+    await fs.writeFile(paths.assessments, JSON.stringify(annotation) + '\n', { mode: 0o600 });
+    const result = await loadPilotEvidenceDiagnostic(paths);
+    assert.equal(result.invalid_assessment_count, 0); assert.equal(result.details[0].annotation_accepted, true);
+    hashes.push(result.details[0].run_row_sha256);
+    annotation.run_row_sha256 = hash(compact + 'stale');
+    await fs.writeFile(paths.assessments, JSON.stringify(annotation));
+    const stale = await loadPilotEvidenceDiagnostic(paths);
+    assert.equal(stale.cause_counts.unknown, 1); assert.equal(stale.unassessed_attempt_count, 0);
+    assert.deepEqual(await fs.readFile(paths.runs), Buffer.from(bytes));
+  }
+  assert.equal(new Set(hashes).size, 4);
+});
+
 // Equal omission grades must not conflate failed delivery and a missing answer after verified delivery.
 test('evidence_diagnostics_distinguish_delivery_from_answer', () => {
   const runs = [makeRun('delivery', 'deterministic'), makeRun('answer', 'hybrid')];
@@ -68,7 +150,7 @@ test('evidence_diagnostics_cli_preserves_private_source_bytes', async () => {
   const line = '  ' + JSON.stringify(run) + '  '; const row = { ...run, run_row_sha256: hash(line) };
   const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs.jsonl'), assessments: join(dir, 'assessments.jsonl') };
   const actual = JSON.parse((await fs.readFile(paths.tasks, 'utf8')).split('\n')[0]); run.task_id = actual.task_id;
-  const actualLine = '  ' + JSON.stringify(run) + '  '; row.task_id = actual.task_id; row.run_row_sha256 = hash(actualLine);
+  const actualLine = '  ' + JSON.stringify(run) + '  '; row.task_id = actual.task_id; row.run_row_sha256 = hash(actualLine + '\n');
   const a = { ...assessment(row, 'unknown', 'unverified'), requirement_ids: [actual.required_evidence[0]] };
   await fs.writeFile(paths.runs, actualLine + '\n', { mode: 0o600 });
   await fs.writeFile(paths.assessments, JSON.stringify(a) + '\n', { mode: 0o600 });
@@ -127,4 +209,62 @@ test('evidence_diagnostics_accepts_empty_private_annotations', async () => {
   const result = await loadPilotEvidenceDiagnostic(paths);
   assert.equal(result.omission_attempt_count, 1); assert.equal(result.cause_counts.unknown, 1);
   assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 0);
+});
+
+// The real CLI must save bound attempt details privately before announcing aggregate success.
+test('evidence_diagnostics_cli_saves_exclusive_private_report_and_refuses_unsafe_outputs', async () => {
+  const dir = join(root, 'private-output'); await fs.mkdir(dir, { mode: 0o700 });
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('REPORT_PRIVATE_IDENTITY'), task_id: task.task_id, answer: 'REPORT_PRIVATE_TEXT' };
+  const runs = join(dir, 'runs'), annotations = join(dir, 'annotations');
+  await fs.writeFile(runs, JSON.stringify(run) + '\n', { mode: 0o600 });
+  await fs.writeFile(annotations, '', { mode: 0o600 });
+  const before = await fs.readFile(runs);
+  const invoke = (output, preload) => spawnSync(process.execPath, [...(preload ? ['--import', preload] : []),
+    resolve('scripts/diagnose-pilot-evidence.mjs'), '--tasks', resolve('evaluation/tasks.jsonl'), '--runs', runs,
+    '--assessments', annotations, '--output', output], { encoding: 'utf8', timeout: 10000 });
+  const output = join(dir, 'report.json'); const saved = invoke(output);
+  assert.equal(saved.status, 0, saved.stderr);
+  const summary = JSON.parse(saved.stdout); assert.equal(summary.cause_counts.unknown, 1);
+  assert.equal(summary.details, undefined); assert.equal(summary.unassessed_attempt_count, 1);
+  const reportBytes = await fs.readFile(output); const report = JSON.parse(reportBytes);
+  assert.equal(report.details[0].run_id, run.run_id); assert.equal(report.details[0].run_row_sha256, hash(before));
+  assert.equal((await fs.stat(output)).mode & 0o777, 0o600);
+  assert.equal(reportBytes.includes('REPORT_PRIVATE_TEXT'), false);
+  const link = join(dir, 'linked-report'); await fs.symlink(output, link);
+  const publicDir = join(root, 'public-output'); await fs.mkdir(publicDir, { mode: 0o755 });
+  const linkedDir = join(root, 'linked-output'); await fs.symlink(dir, linkedDir);
+  const failed = [invoke(output), invoke(link), invoke(join(publicDir, 'report')), invoke(join(linkedDir, 'report')), invoke('')];
+  // Real subprocess fault injection reaches write failure after exclusive descriptor creation.
+  const preload = join(dir, 'write-error.mjs');
+  await fs.writeFile(preload, "import fs from 'node:fs/promises'; const open=fs.open; fs.open=async (...args)=>{const file=await open(...args);" +
+    "if(args[0].endsWith('write-failure.json')) file.writeFile=async()=>{throw new Error('REPORT_PRIVATE_WRITE_ERROR')};return file};\n", { mode: 0o600 });
+  failed.push(invoke(join(dir, 'write-failure.json'), preload));
+  for (const result of [saved, ...failed]) {
+    assert.ok(!/REPORT_PRIVATE_/.test(result.stdout + result.stderr));
+  }
+  for (const result of failed) {
+    assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).available, false);
+    assert.ok(!result.stdout.includes('omission_attempt_count'));
+  }
+  assert.deepEqual(await fs.readFile(output), reportBytes); assert.deepEqual(await fs.readFile(runs), before);
+});
+
+// Diagnostics have the same decoded line/record caps as measurement, including empty annotations.
+test('evidence_diagnostics_loader_caps_private_jsonl_before_decoding_growth', async () => {
+  const dir = join(root, 'diagnostic-limits'); await fs.mkdir(dir, { mode: 0o700 });
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+  const task = JSON.parse((await fs.readFile(paths.tasks, 'utf8')).split('\n')[0]);
+  await fs.writeFile(paths.runs, JSON.stringify({ ...makeRun('bounded'), task_id: task.task_id }) + '\n', { mode: 0o600 });
+  for (const count of [100_000, 100_001]) {
+    await fs.writeFile(paths.assessments, '{}\n'.repeat(count), { mode: 0o600 });
+    if (count === 100_000) assert.equal((await loadPilotEvidenceDiagnostic(paths)).invalid_assessment_count, count);
+    else await assert.rejects(loadPilotEvidenceDiagnostic(paths), /input rejected/);
+  }
+  const prefix = '{"ignored":"'; const suffix = '"}\n';
+  for (const bytes of [1_000_000, 1_000_001]) {
+    await fs.writeFile(paths.assessments, prefix + 'x'.repeat(bytes - prefix.length - suffix.length) + suffix, { mode: 0o600 });
+    if (bytes === 1_000_000) assert.equal((await loadPilotEvidenceDiagnostic(paths)).invalid_assessment_count, 1);
+    else await assert.rejects(loadPilotEvidenceDiagnostic(paths), /input rejected/);
+  }
 });

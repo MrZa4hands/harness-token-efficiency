@@ -13,10 +13,16 @@ These commands need no hook installation or Jev enablement. Prepare byte-identic
 ```sh
 umask 077
 rtk proxy node scripts/measure-task-usage.mjs --manifest /private/measurement/task.json > /private/measurement/new-result.json
-rtk proxy node scripts/diagnose-pilot-evidence.mjs --tasks evaluation/tasks.jsonl --runs /private/diagnostics/runs.jsonl --assessments /private/diagnostics/assessments.jsonl
+rtk proxy node scripts/diagnose-pilot-evidence.mjs --tasks evaluation/tasks.jsonl --runs /private/diagnostics/runs.jsonl --assessments /private/diagnostics/assessments.jsonl --output /private/diagnostics/new-report.json
 ```
 
 Measurement supports native 0.159.2 and returns independently verified lower bounds. It exits 1 with complete task/provider coverage unavailable; do not treat partial counters as total consumption. Stable empty/malformed/missing captures or audits preserve other admitted bounds; unsafe or changing input rejects the load. Diagnostics require original rows and separate annotations in the same private directory; an empty annotation file keeps all omission causes unknown. CLI errors are generic and reports expose no prompt/code bodies.
+
+For a multi-turn task, replace singular `root_turn_id` with ordered, unique, nonempty `root_turn_ids` and give every interval its source-backed `turn_id`. Admit setup, correction and expansion turns deliberately; source boundaries exclude earlier unrelated work. Legacy single-turn manifests remain supported. A worker contributes only its observed declared-turn subset and must have an acyclic admitted ancestry reaching the root; missing worker turns remain explicit.
+
+Diagnostic `--output` is optional. Its destination must be new, in an existing canonical owned 0700 directory; the file is exclusively created as 0600 without overwriting files or following links. It contains run-level identifiers and proof hashes: keep it private. Stdout omits held-out and tuning details. Valid diagnostics, including unknown causes, exit 0; malformed/unsafe input or a requested save failure exits 1 without a success report. A failed save can leave a private partial destination; retry with a new filename. This exclusive-write contract does not promise atomic publication or automatic cleanup.
+
+Generate annotations against hashes of original row bytes including LF or CRLF; an unterminated final row contributes only its actual bytes. Do not reserialize rows. For older LF-excluding annotations, preserve originals and create separate rebound annotations after verifying the original row correspondence. Unknown includes unsupported or conflicting causes; `unassessed_attempt_count` counts only omission attempts with no annotation and is a subset of unknown. See [limits and provenance](evaluation.md).
 
 Compare reference baseline, deterministic rules without Jev, and hybrid rules with Jev only where a query occurred. Include unknown billing and failed attempts; compare total tokens only when every task, worker and provider is covered. This calibration does not supply that closure and demonstrates no total saving. See [manifest fields, limits, annotations and historical results](evaluation.md) and [validation](validation/task-measurement.md).
 

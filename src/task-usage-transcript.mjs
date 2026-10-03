@@ -8,6 +8,16 @@ const fields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens
 const validIdentity = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
 const validUsage = usage => collectCodexUsage([{ session_id: 'validation', thread_id: 'validation', counter_epoch: '0', usage }], '0.159.2').available;
 
+/** Admit ordered unique root task turns; singular identities retain the shipped one-turn contract. */
+export function taskRootTurnIds(value) {
+  const turns = value?.root_turn_ids !== undefined ? value.root_turn_ids :
+    (validIdentity(value?.root_turn_id) ? [value.root_turn_id] : []);
+  if (!Array.isArray(turns) || !turns.length || !turns.every(validIdentity) || new Set(turns).size !== turns.length ||
+      value.root_turn_ids !== undefined && value.root_turn_id !== undefined &&
+      (turns.length !== 1 || turns[0] !== value.root_turn_id)) throw new Error('Task turn membership rejected.');
+  return turns;
+}
+
 /** Resolve private task references inside the canonical manifest directory; reject every linked or nonprivate component. */
 export async function resolvePrivateTaskReference(directory, reference) {
   try {
@@ -69,66 +79,171 @@ export async function readPrivateTaskSnapshot(path, byteLimit = 4_000_000, allow
   return readTaskFileSnapshot(path, byteLimit, true, allowEmpty);
 }
 
+/** Share parsed-record and retained-identity budgets across one offline invocation. */
+export const createTaskReadBudget = () => ({ records: 0, identities: new Set() });
+
+/** Retain a namespaced response/decision identity once within the invocation's fixed cap. */
+export function retainTaskReadIdentity(budget, namespace, identity) {
+  if (!validIdentity(identity)) throw new Error('Task usage identity rejected.');
+  const key = JSON.stringify([namespace, identity]);
+  if (!budget.identities.has(key)) {
+    if (budget.identities.size >= 100_000) {
+      const error = new Error('Task usage identity budget exceeded.'); error.budget_exceeded = true; throw error;
+    }
+    budget.identities.add(key);
+  }
+}
+
+/** Stream/hash/parse a stable descriptor; callbacks receive exact original row hashes, never reopened paths. */
+export async function readTaskJsonlSnapshot(path, options, onRecord) {
+  let file, size, ancestors, before, snapshotUnstable = false;
+  try {
+    const budget = options.budget ?? createTaskReadBudget();
+    const byteLimit = options.byte_limit ?? 4_000_000;
+    if (!Number.isSafeInteger(byteLimit) || byteLimit < 0 || byteLimit === 0 && !options.allow_empty ||
+        byteLimit > 64_000_000) throw new Error();
+    ancestors = await taskSnapshotAncestors(path);
+    file = await fs.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    before = await file.stat({ bigint: true });
+    if (await taskSnapshotAncestors(path) !== ancestors || !before.isFile() ||
+        options.require_private !== false && (before.uid !== BigInt(process.getuid()) || (before.mode & 0o077n) !== 0n) ||
+        !options.allow_empty && before.size === 0n || before.size > BigInt(byteLimit)) throw new Error();
+    size = Number(before.size);
+    const hash = createHash('sha256'); const chunk = Buffer.alloc(65_536);
+    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    let offset = 0, pending = Buffer.alloc(0), records = 0;
+    const consume = bytes => {
+      if (bytes.length > 1_000_000) {
+        const error = new Error(); error.budget_exceeded = true; error.budget_scope = 'source'; throw error;
+      }
+      const text = decoder.decode(bytes);
+      if (!text.trim()) return;
+      if (records >= 100_000 || budget.records >= 250_000) {
+        const error = new Error(); error.budget_exceeded = true;
+        error.budget_scope = budget.records >= 250_000 ? 'invocation' : 'source'; throw error;
+      }
+      const index = records++; budget.records++;
+      onRecord(JSON.parse(text), createHash('sha256').update(bytes).digest('hex'), index);
+    };
+    while (offset < size) {
+      snapshotUnstable = true;
+      const { bytesRead } = await file.read(chunk, 0, Math.min(chunk.length, size - offset), offset);
+      if (!bytesRead) throw new Error(); snapshotUnstable = false; offset += bytesRead;
+      const bytes = chunk.subarray(0, bytesRead); hash.update(bytes);
+      let start = 0;
+      for (let end = bytes.indexOf(10); end !== -1; end = bytes.indexOf(10, start)) {
+        const segment = bytes.subarray(start, end + 1);
+        consume(pending.length ? Buffer.concat([pending, segment]) : segment);
+        pending = Buffer.alloc(0); start = end + 1;
+      }
+      if (start < bytes.length) {
+        if (pending.length + bytes.length - start > 1_000_000) {
+          const error = new Error(); error.budget_exceeded = true; error.budget_scope = 'source'; throw error;
+        }
+        pending = Buffer.concat([pending, bytes.subarray(start)]);
+      }
+    }
+    if (pending.length) { if (options.require_terminated) throw new Error(); consume(pending); }
+    snapshotUnstable = true;
+    const after = await file.stat({ bigint: true });
+    if (await taskSnapshotAncestors(path) !== ancestors ||
+        ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => before[key] !== after[key])) throw new Error();
+    snapshotUnstable = false;
+    return { snapshot_bytes: size, source_sha256: hash.digest('hex'), record_count: records };
+  } catch (cause) {
+    // Parse/decode/cap failures are source-local only when the admitted descriptor stayed stable.
+    if (file && before && ancestors && size !== undefined) {
+      try {
+        const after = await file.stat({ bigint: true });
+        if (await taskSnapshotAncestors(path) !== ancestors ||
+            ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => before[key] !== after[key])) snapshotUnstable = true;
+      } catch { snapshotUnstable = true; }
+    }
+    const error = new Error('Task usage JSONL snapshot or budget rejected.');
+    error.snapshot_bytes = size; error.budget_exceeded = cause.budget_exceeded === true;
+    error.snapshot_unstable = snapshotUnstable;
+    if (cause.budget_scope) error.budget_scope = cause.budget_scope; throw error;
+  } finally { await file?.close(); }
+}
+
 /** Read task-scoped native usage, excluding inherited responses; exhaustive worker/provider closure is unobservable. */
 export async function readTaskUsageTranscript(path, options) {
   const unavailable = { available: false, initial_usage: null, final_usage: null, responses: [],
     worker_coverage_verified: false, provider_coverage_verified: false, limitations: ['Task usage transcript unavailable.'] };
   try {
     if (!options || options.client_version !== '0.159.2' ||
-        !['thread_id', 'root_session_id', 'root_turn_id'].every(key => validIdentity(options[key]))) return unavailable;
-    const snapshot = await readPrivateTaskSnapshot(path, Math.min(64_000_000, options.byte_limit ?? 64_000_000), true);
-    // Safe bytes still consume the input budget when their native records cannot be normalized.
-    unavailable.snapshot_bytes = snapshot.snapshot_bytes; unavailable.source_sha256 = snapshot.source_sha256;
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(snapshot.data);
-    if (!text.endsWith('\n')) return unavailable;
-    const rows = text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
-    const metadata = rows.filter(row => row.type === 'session_meta' && row.payload?.id === options.thread_id).map(row => row.payload);
-    if (!metadata.length || metadata.some(meta => meta.session_id !== options.root_session_id ||
-        meta.cli_version !== options.client_version || meta.parent_thread_id !== metadata[0].parent_thread_id)) return unavailable;
-    const contexts = new Map();
-    for (const row of rows) if (row.type === 'turn_context' && validIdentity(row.payload?.turn_id)) {
-      const context = row.payload;
-      const prior = contexts.get(context.turn_id);
-      if (prior && (prior.model !== context.model || prior.effort !== context.effort || prior.root_turn_id !== context.root_turn_id)) return unavailable;
-      contexts.set(context.turn_id, { model: context.model, effort: context.effort, root_turn_id: context.root_turn_id });
-    }
-    const seen = new Map(); const allResponses = []; let previous = null;
-    for (let index = 0; index < rows.length; index++) {
-      const row = rows[index]; const p = row.payload;
-      if (row.type !== 'token_usage_record' || p?.thread_id !== options.thread_id) continue;
+        !['thread_id', 'root_session_id'].every(key => validIdentity(options[key]))) return unavailable;
+    const rootTurns = taskRootTurnIds(options); const admittedTurns = new Set(rootTurns);
+    const budget = options.read_budget ?? createTaskReadBudget();
+    const contexts = new Map(), contextConflicts = new Set(), seen = new Map(), allResponses = [], taskEvents = [];
+    let metadata = null, previous = null;
+    const snapshot = await readTaskJsonlSnapshot(path, { budget, byte_limit: Math.min(64_000_000, options.byte_limit ?? 64_000_000),
+      allow_empty: true, require_terminated: true }, (row, hash, index) => {
+      const p = row?.payload;
+      if (row?.type === 'session_meta' && p?.id === options.thread_id) {
+        const parent = validIdentity(p.parent_thread_id) ? p.parent_thread_id : null;
+        if (p.session_id !== options.root_session_id || p.cli_version !== options.client_version ||
+            metadata && parent !== metadata.parent_thread_id) throw new Error();
+        metadata = { parent_thread_id: parent, agent_path: validIdentity(p.agent_path) ? p.agent_path : null };
+      }
+      if (row?.type === 'turn_context' && validIdentity(p?.turn_id)) {
+        const context = { model: validIdentity(p.model) ? p.model : null, effort: validIdentity(p.effort) ? p.effort : null,
+          root_turn_id: validIdentity(p.root_turn_id) ? p.root_turn_id : null };
+        const prior = contexts.get(p.turn_id);
+        if (prior && JSON.stringify(prior) !== JSON.stringify(context)) contextConflicts.add(p.turn_id);
+        contexts.set(p.turn_id, context);
+      }
+      if (row?.type === 'event_msg' && ['task_started', 'task_complete'].includes(p?.type) && validIdentity(p.turn_id)) {
+        taskEvents.push({ record_index: index, type: p.type, turn_id: p.turn_id,
+          root_turn_id: validIdentity(p.root_turn_id) ? p.root_turn_id : null,
+          completed_at: validIdentity(p.completed_at) ? p.completed_at : null });
+      }
+      if (row?.type !== 'token_usage_record' || p?.thread_id !== options.thread_id) return;
       if (p.session_id !== options.root_session_id || !validIdentity(p.response_id) || !validIdentity(p.turn_id) ||
-          !validIdentity(p.root_turn_id) || !validUsage(p.usage) || !validUsage(p.thread_token_usage)) return unavailable;
+          !validIdentity(p.root_turn_id) || !validUsage(p.usage) || !validUsage(p.thread_token_usage)) throw new Error();
       const record = { response_id: p.response_id, turn_id: p.turn_id, root_turn_id: p.root_turn_id,
         usage: Object.fromEntries(fields.map(key => [key, p.usage[key]])),
         thread_usage: Object.fromEntries(fields.map(key => [key, p.thread_token_usage[key]])), record_index: index };
       const old = seen.get(p.response_id);
       if (old) {
-        if (JSON.stringify({ ...old, record_index: 0 }) !== JSON.stringify({ ...record, record_index: 0 })) return unavailable;
-        continue;
+        if (JSON.stringify({ ...old, record_index: 0 }) !== JSON.stringify({ ...record, record_index: 0 })) throw new Error();
+        return;
       }
-      if (previous && fields.some(key => p.thread_token_usage[key] !== previous[key] + p.usage[key])) return unavailable;
-      if (fields.some(key => p.thread_token_usage[key] < p.usage[key])) return unavailable;
+      if (previous && fields.some(key => p.thread_token_usage[key] !== previous[key] + p.usage[key])) throw new Error();
+      if (fields.some(key => p.thread_token_usage[key] < p.usage[key])) throw new Error();
+      retainTaskReadIdentity(budget, JSON.stringify(['codex-response', options.thread_id]), p.response_id);
       seen.set(p.response_id, record); allResponses.push(record); previous = record.thread_usage;
-    }
-    const responses = allResponses.filter(row => row.root_turn_id === options.root_turn_id);
+    });
+    unavailable.snapshot_bytes = snapshot.snapshot_bytes; unavailable.source_sha256 = snapshot.source_sha256;
+    if (!metadata) return unavailable;
+    const responses = allResponses.filter(row => admittedTurns.has(row.root_turn_id));
     if (!responses.length) return unavailable;
+    const observedRootTurns = new Set(responses.map(row => row.root_turn_id));
+    const missingRootTurns = rootTurns.filter(turn => !observedRootTurns.has(turn));
     const settings = responses.map(row => contexts.get(row.turn_id));
-    if (settings.some(context => !context || context.root_turn_id !== options.root_turn_id ||
+    if (settings.some((context, index) => !context || contextConflicts.has(responses[index].turn_id) ||
+        context.root_turn_id !== responses[index].root_turn_id ||
         !validIdentity(context.model) || !validIdentity(context.effort) ||
         context.model !== settings[0].model || context.effort !== settings[0].effort)) return unavailable;
     const first = responses[0]; const initial = Object.fromEntries(fields.map(key => [key, first.thread_usage[key] - first.usage[key]]));
     if (!validUsage(initial)) return unavailable;
     const turnIds = new Set(responses.map(row => row.turn_id));
-    const taskRecords = rows.flatMap((row, index) => row.type === 'event_msg' &&
-      ['task_started', 'task_complete'].includes(row.payload?.type) && turnIds.has(row.payload.turn_id) ?
-      [{ record_index: index, type: row.payload.type, turn_id: row.payload.turn_id,
-        root_turn_id: row.payload.root_turn_id ?? options.root_turn_id, completed_at: row.payload.completed_at ?? null }] : []);
-    const { byte_limit, ...identities } = options;
-    return { available: true, ...identities, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
+    const taskRecords = taskEvents.filter(row => turnIds.has(row.turn_id)).map(row => ({ ...row,
+      root_turn_id: row.root_turn_id ?? contexts.get(row.turn_id)?.root_turn_id ?? null }));
+    const { byte_limit, read_budget, ...identities } = options;
+    return { available: true, ...identities, root_turn_ids: rootTurns.filter(turn => observedRootTurns.has(turn)),
+      missing_root_turn_ids: missingRootTurns, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
       main_model: settings[0].model, reasoning_effort: settings[0].effort,
-      parent_thread_id: metadata[0].parent_thread_id ?? null, agent_path: metadata[0].agent_path ?? null,
+      parent_thread_id: metadata.parent_thread_id ?? null, agent_path: metadata.agent_path ?? null,
       initial_usage: initial, final_usage: responses.at(-1).thread_usage, responses, all_responses: allResponses,
       task_records: taskRecords, worker_coverage_verified: false, provider_coverage_verified: false,
-      limitations: ['Native exhaustive worker closure unavailable.', 'Native exhaustive provider closure unavailable.'] };
-  } catch { return unavailable; }
+      limitations: ['Native exhaustive worker closure unavailable.', 'Native exhaustive provider closure unavailable.',
+        ...(missingRootTurns.length ? ['Selected task turns absent from this subject capture.'] : [])] };
+  } catch (error) {
+    if (error.snapshot_bytes !== undefined) unavailable.snapshot_bytes = error.snapshot_bytes;
+    if (error.snapshot_unstable) unavailable.snapshot_unstable = true;
+    if (error.budget_exceeded) unavailable.budget_exceeded = true;
+    if (error.budget_scope) unavailable.budget_scope = error.budget_scope;
+    return unavailable;
+  }
 }
