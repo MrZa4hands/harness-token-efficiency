@@ -102,11 +102,56 @@ test('native_hybrid_trial_preserves_classified_goal_continuity', async () => {
         prompt: task.prior_requests[index], model: admission.main_model,
         reasoning_effort: admission.reasoning_effort, client_version: admission.client_version }) });
     assert.equal(result.status, 0, result.stderr);
+    const auditPath = join(temporaryRoot, 'trial-observation-' + createHash('sha256')
+      .update(JSON.stringify([admission.run_id, session, 'hybrid-turn-' + index])).digest('hex') + '.json');
+    const audit = await readFile(auditPath, 'utf8').then(JSON.parse, () => null);
+    const diagnostics = JSON.stringify({ turn: index, child_status: result.status, stderr: result.stderr,
+      audit_present: Boolean(audit), audit_reason: audit?.reason ?? null });
+    assert.ok(audit, 'Each successful prior turn must have an audit: ' + diagnostics);
+    assert.equal((await readContextTask(stateDir, root, session))?.turn_id, 'hybrid-turn-' + index, diagnostics);
   }
   const state = await readContextTask(stateDir, root, session);
   assert.equal(state.turn_id, 'hybrid-turn-1');
   assert.equal(state.continuity, 'known', 'An accepted Jev continuation must resolve ambiguous trial history');
   assert.equal(state.expected_jev_model, 'fixture-actual', 'The classified actual model must remain pinned in conversation history');
+});
+
+// An audit failure must preserve saved state, discard context and explain the next turn's conservative abstention.
+test('native_hybrid_trial_missing_prior_audit_abstains_with_reason', async () => {
+  const root = join(temporaryRoot, 'missing-hybrid-audit-fixture'); await materializePilotFixture(root);
+  const tasksPath = resolve('evaluation/tasks.jsonl');
+  const task = (await readFile(tasksPath, 'utf8')).trim().split('\n').map(JSON.parse).find(row => row.task_id === 'follow_up_04');
+  const snapshot = await captureRepositorySnapshot(root); const admissionPath = join(temporaryRoot, 'missing-hybrid-admission.json');
+  const admission = { version: 1, run_id: 'missing-hybrid-audit', repo_root: root, repo_revision: snapshot.repo_revision,
+    task_id: task.task_id, variant: 'hybrid', main_model: 'fixture-main-model', reasoning_effort: 'medium',
+    client_version: '0.159.2', jev_model: 'fixture-alias', jev_actual_model: 'fixture-actual',
+    expires_at: new Date(Date.now() + 60000).toISOString() };
+  const home = join(temporaryRoot, 'missing-hybrid-home'); await mkdir(home);
+  const bootstrap = join(temporaryRoot, 'missing-hybrid-bootstrap.mjs');
+  await writeFile(bootstrap, "import os from 'node:os';import fs from 'node:fs/promises';import {syncBuiltinESMExports} from 'node:module';" +
+    'os.homedir=()=>'+JSON.stringify(home)+';' +
+    "const original=fs.writeFile;fs.writeFile=(path,...args)=>process.env.FAIL_INITIAL_AUDIT==='1'&&String(path).includes('trial-observation-')?Promise.reject(new Error('Synthetic audit failure')):original(path,...args);" +
+    "globalThis.fetch=async()=>new Response('{}');syncBuiltinESMExports();\n");
+  const session = 'missing-audit-session'; const stateDir = join(home, '.codex/codex-context-policy');
+  const invoke = async (index, fail) => {
+    await writeFile(admissionPath, JSON.stringify({ ...admission, prompt_index: index }), { mode: 0o600 });
+    return spawnSync(process.execPath, ['--import', bootstrap, resolve('src/pilot-evaluation.mjs'), 'trial',
+      '--tasks', tasksPath, '--admission', admissionPath], { encoding: 'utf8', timeout: 3000,
+      env: { ...process.env, TYPESAFE_API_KEY: 'fixture-key', FAIL_INITIAL_AUDIT: fail ? '1' : '0' },
+      input: JSON.stringify({ cwd: root, session_id: session, turn_id: 'missing-turn-' + index,
+        hook_event_name: 'UserPromptSubmit', prompt: task.prior_requests[index], model: admission.main_model,
+        reasoning_effort: admission.reasoning_effort, client_version: admission.client_version }) });
+  };
+  const first = await invoke(0, true); assert.equal(first.status, 0, first.stderr);
+  assert.equal(first.stdout, ''); assert.match(first.stderr, /Context trial audit unavailable/);
+  const before = await readContextTask(stateDir, root, session); assert.equal(before?.turn_id, 'missing-turn-0');
+  const auditPath = index => join(temporaryRoot, 'trial-observation-' + createHash('sha256')
+    .update(JSON.stringify([admission.run_id, session, 'missing-turn-' + index])).digest('hex') + '.json');
+  assert.equal(await readFile(auditPath(0)).then(() => true, error => error.code !== 'ENOENT'), false);
+  const second = await invoke(1, false); assert.equal(second.status, 0, second.stderr); assert.equal(second.stdout, '');
+  assert.deepEqual(await readContextTask(stateDir, root, session), before);
+  const audit = JSON.parse(await readFile(auditPath(1), 'utf8'));
+  assert.equal(audit.reason, 'prior-conversation-unverified'); assert.equal(audit.emitted, false);
 });
 
 // An experimental hook must never inject for another prompt, root, model, task, revision or expired admission.
