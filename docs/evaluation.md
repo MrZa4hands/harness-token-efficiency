@@ -67,7 +67,7 @@ Native shadow smoke confirms one installed trusted rule proposal with no tools, 
 rtk proxy node scripts/verify-context-policy.mjs
 ```
 
-The current gate passes 154 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Test files run serially because concurrent workers interfered with strict deadlines; production budgets and within-file concurrency tests are unchanged. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
+The current gate passes 185 tests and checks syntax, JSON/corpus consistency, source scope, approximately 500-line limits, and internal document links. Test files run serially because concurrent workers interfered with strict deadlines; production budgets and within-file concurrency tests are unchanged. Unavailable external reference links produce warnings; they are not claimed validated. Test-owned temporary roots move to Trash after each suite.
 
 Native observations are recorded separately in [phase 0 validation](validation/phase-0.md) and [phase 1 validation](validation/phase-1.md). Direct App tools, direct command tools, MCP, compaction, and resume retain their stated unverified status. Remaining probes must be withdrawn before optimization-baseline runs. Later paired experiments must preserve model, effort, prompts, starting state, order/cache controls, full evidence/check outcomes, all providers/workers, and expansion/correction costs. Unknown usage and failed tasks cannot be silently discarded to manufacture savings.
 
@@ -136,3 +136,62 @@ Corrected report generation retains the original 189 rows. Code-context descript
 These are observed candidate-minus-baseline wall-clock differences, not controlled causal speedups. Every qualified total-token reduction is null and `promotions` is empty. Unknown complete billing, quality failures and incomplete repeats independently prevent activation. More paid cases cannot reconstruct historical missing counters or remove recorded omissions. Current source corrections also invalidate the frozen source as new qualification proof.
 
 The global trial was withdrawn. Separate corrected-source off/uninstall smoke preserves foreign hooks, removes only owned hooks/skill, keeps a modified off/Jev-disabled policy and verifies a fresh native baseline with no tools or experimental context; foreign Ponytail context remains present. Positive native activation is unavailable because no real family qualifies. See [phase 4 validation](validation/phase-4.md) for source/review bindings and retention. Keep production observational and Jev disabled; no total-token or provider-cost saving is demonstrated.
+
+## Offline Task Measurement
+
+Read an explicitly prepared private manifest and byte-identical source copies:
+
+```sh
+umask 077
+rtk proxy node scripts/measure-task-usage.mjs --manifest /private/measurement/task.json > /private/measurement/new-result.json
+```
+
+Use a new output filename; shell redirection can truncate an existing file. The script performs no discovery, network requests or writes. The manifest directory and source components must be owned by the current user, private (directories 0700, files 0600), canonical and free of symlinks. Source paths are relative to that directory and cannot escape it. Preserve raw evidence separately; never infer missing IDs, counters or settings from configuration defaults.
+
+Manifest version 1 requires `manifest_version`, `task_id`, `run_id`, `client_version`, `main_model`, `reasoning_effort`, `root_session_id`, `root_turn_id`, `captures`, `intervals`, `decisions`, and `closure`. Use actual observed model/effort. Capture descriptors are `{path, sha256, thread_id}`; decision descriptors are `{path, sha256}`. SHA-256 binds exact source bytes. Each interval supplies `{thread_id, start_response_id, end_response_id, initial_usage, final_usage, response_ids}`. A proven fresh thread uses `start_response_id:null`, zero initial counters and its native start record. A resumed interval names the last prior response and its cumulative counters, excluding earlier work. Closure contains `worker_source_refs` and `provider_source_refs` arrays; this adapter cannot authenticate exhaustive closure, so references or caller flags cannot authorize complete totals.
+
+`readTaskUsageTranscript(path, options)` in `src/task-usage-transcript.mjs` supports only calibrated native `0.159.2`. Options bind client version, thread and root session/turn; `byte_limit` can narrow the default 64 MB snapshot limit. The reader retains a source hash, byte count, subject responses, boundary responses and safe task records. It excludes inherited parent prefixes, deduplicates identical response IDs and rejects conflicting counters, resets, unsafe arithmetic, malformed UTF-8 and incomplete JSONL. No prompt/code bodies leave the reader. A native terminal record proves its own completion, not discovery of every descendant or provider attempt.
+
+`collectCompleteTaskUsage(manifest, captures, decisions)` in `src/task-usage.mjs` verifies source identities, parent admission, interval response order, cumulative deltas and independent increments. Normalized decision inputs are `{path, source_sha256, records}` and must match their own manifest descriptor. Native `session_hash`/`turn_hash` use the producer's plain SHA-256 identity contract; supplied raw identities must agree when both forms occur. Independently valid decision groups retain their lower bounds beside abandoned attempts; conflicting groups contribute no bound. An empty or missing audit cannot prove task-wide zero.
+
+Output uses `measurement_scope:task`, `task_coverage_verified:false`, unavailable complete `codex_usage`, `jev_usage` and `providers`, independently admitted `observed_providers`, `known_lower_bound`, source hashes and limitations. Monetary `cost` stays null. Cached input and reasoning remain included subsets. Useful partial output exits 1 because complete coverage is unavailable; that exit must not be relabelled a complete measurement failure or success.
+
+`loadPrivateTaskMeasurement` in `scripts/measure-task-usage.mjs` limits manifests and decision files to 4 MB, captures to 64 MB each and 512 MB in aggregate, and both descriptor lists to 128 entries. Its optional aggregate byte argument may only narrow the 512 MB limit. Actual descriptor snapshots are charged, rather than trusting preflight sizes. Stable empty, absent or malformed sources remain unavailable while other admitted bounds survive. Unsafe paths, permissions, file types, changing snapshots or exceeded budgets reject the load with generic errors. Descriptor and ancestor checks detect persistent substitutions; they are not a sandbox against a malicious same-user process that swaps and restores paths. CLI JSON output is capped at 4 MB.
+
+Shared snapshot exports live in `src/task-usage-transcript.mjs`: `resolvePrivateTaskReference(directory, reference)` admits a manifest-relative private source; `readPrivateTaskSnapshot(path, byteLimit=4_000_000, allowEmpty=false)` returns bounded bytes, hash and descriptor metadata; `readTaskFileSnapshot(path, byteLimit, requirePrivate=true, allowEmpty=false)` additionally supports the canonical public corpus. Empty input is allowed only at explicitly opted-in partial-evidence boundaries, not for a manifest or run collection. These are programmatic file-boundary helpers; use the two documented CLIs for ordinary measurement and diagnostics.
+
+## Independent Omission Diagnostics
+
+Copy original assessed rows and separate annotations into one private canonical directory, preserving exact bytes:
+
+```sh
+rtk proxy node scripts/diagnose-pilot-evidence.mjs --tasks evaluation/tasks.jsonl --runs /private/diagnostics/runs.jsonl --assessments /private/diagnostics/assessments.jsonl
+```
+
+The supplied public corpus must exactly equal this checkout's canonical corpus. Bounded descriptor reads reject blocking/nonregular inputs; private run and assessment files are limited to 4 MB each. Empty assessments are valid and retain all omitted attempts as unknown/unassessed. The loader hashes each original JSONL row excluding LF, preserving CR and whitespace instead of reserializing it. Rejected input exits 1 with generic diagnostics. CLI output contains only aggregate counts, source hashes and limitations, including a separate tuning summary; run-level `details` remain private in `loadPilotEvidenceDiagnostic`'s returned result.
+
+`diagnosePilotEvidence(tasks, runs, assessments)` in `src/pilot-evidence-diagnostics.mjs` never changes quality grades. Each annotation requires `run_id`, `task_id`, `run_row_sha256`, nonempty corpus-backed `requirement_ids`, `proof_sha256s`, typed `proofs` entries `{sha256, kind}`, and `primary_cause`. A hash authenticates bytes, not causal truth; annotations are owner-attested. The matching proof purposes are:
+
+| Primary cause | Required proof kind | Diagnostic meaning |
+|---|---|---|
+| `selection_or_delivery` | `delivery_trace` | Relevant required evidence was missing from delivery. |
+| `answer_omission` | `delivered_evidence` | Relevant evidence reached context but was omitted from the answer. |
+| `corpus_scope_mismatch` | `scope_annotation` | Frozen requirements exceed the scoped request. |
+| `unknown` | `unverified` | No supported causal distinction. |
+
+Missing, stale, duplicate or contradictory annotations remain unknown and counted. Unknown quality is reported separately; unknown variant names contribute to cohort totals without becoming one of the three recognized treatments. Tuning never enters held-out totals. Absence from a retained full-body matcher alone cannot establish missing relevant delivery.
+
+## Historical Remeasurement and Three Treatments
+
+Offline remeasurement examined all 189 retained held-out/repeated captures, without another paid cohort, tuning or favorable retries. Source-bound final-root-turn Codex interval lower bounds are verified for 187 attempts; two remain unknown. These intervals exclude earlier setup/follow-up turns and therefore cannot replace the wider historical conversation totals. No capture establishes exhaustive worker/provider closure; complete-task totals and saving estimates remain null.
+
+| Treatment, including repeats | Attempts | Correct answers | Original omission attempts | Scope mismatch annotations | Unknown causes |
+|---|---:|---:|---:|---:|---:|
+| Reference baseline | 63 | 61 | 14 | 7 | 7 |
+| Deterministic rules without Jev | 63 | 59 | 16 | 6 | 10 |
+| Hybrid rules with Jev where queried | 63 | 59 | 17 | 8 | 9 |
+| Total | 189 | 179 | 47 | 21 | 26 |
+
+The hybrid treatment label does not mean every attempt queried Jev. Source/turn admission yields 122 observed Jev billing aggregates and 67 unavailable aggregates for these narrower intervals; this differs from the wider original report's billing scope. Neither available zero-attempt records nor verified Codex intervals establish complete auxiliary-provider coverage. Unknown billing cannot be substituted with zero or omitted to manufacture a comparison.
+
+All original corpus, assessed rows, source binding and reports remain byte-identical. The 21 scope annotations do not repair or overturn original unfavorable grades; 26 causes remain unknown. The two check failures retain separate diagnostics for capacity interruption and broadened test scope. Current measurement-source corrections are not a new optimizer qualification experiment. See [task measurement validation](validation/task-measurement.md) and [usage](usage.md). Jev remains disabled and no family is promoted.

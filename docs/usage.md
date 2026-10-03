@@ -6,6 +6,20 @@ read_when: Before installing, trusting, configuring, or removing the context pol
 
 Phases 0–4 establish compatibility, measurement, isolated decisions, exact expandable context, explicitly requested declared checks, seven-family qualification and immediate mode control. Off is inert; shadow and unpromoted enforce prepare privately without injecting evidence, rewriting commands or running checks automatically. Optional Jev queries require an eligible safe request and a configured credential/model. The current pilot keeps Jev disabled after negative calibration and nonqualifying paired results.
 
+## Measure Existing Tasks Offline
+
+These commands need no hook installation or Jev enablement. Prepare byte-identical capture copies and a source-hashed task manifest in a canonical directory owned by the current user (0700 directories, 0600 files). Bind actual native identities, response boundaries, model and effort. Use a new output filename:
+
+```sh
+umask 077
+rtk proxy node scripts/measure-task-usage.mjs --manifest /private/measurement/task.json > /private/measurement/new-result.json
+rtk proxy node scripts/diagnose-pilot-evidence.mjs --tasks evaluation/tasks.jsonl --runs /private/diagnostics/runs.jsonl --assessments /private/diagnostics/assessments.jsonl
+```
+
+Measurement supports native 0.159.2 and returns independently verified lower bounds. It exits 1 with complete task/provider coverage unavailable; do not treat partial counters as total consumption. Stable empty/malformed/missing captures or audits preserve other admitted bounds; unsafe or changing input rejects the load. Diagnostics require original rows and separate annotations in the same private directory; an empty annotation file keeps all omission causes unknown. CLI errors are generic and reports expose no prompt/code bodies.
+
+Compare reference baseline, deterministic rules without Jev, and hybrid rules with Jev only where a query occurred. Include unknown billing and failed attempts; compare total tokens only when every task, worker and provider is covered. This calibration does not supply that closure and demonstrates no total saving. See [manifest fields, limits, annotations and historical results](evaluation.md) and [validation](validation/task-measurement.md).
+
 ## Install and Trust
 
 Use the project's installed Node and Git. The tested environment is macOS with Node `v26.9.0`, Desktop engine `0.159.2`, and codex-tui `0.159.3`. Other environments and versions are not established by this pilot.
