@@ -6,6 +6,13 @@ read_when: Before assessing the capabilities of the current pilot phase.
 
 ## Unreleased
 
+### Multi-turn Accounting and Private Diagnostic Reports
+
+- Measure explicitly declared multi-turn tasks, including correction/expansion turns and reused worker subsets, without counting inherited prefixes or duplicate responses. Exclude conflicted/disconnected/cyclic worker subtrees and their billing while preserving independent bounds. Complete totals and cost remain unknown. See [manifest and limits](docs/evaluation.md).
+- Stream source-hashed JSONL through shared byte/record/identity caps, retaining normalized metadata and one snapshot per canonical decision path. Detect descriptor instability even on early parse failures; preserve independent bounds beside stable source-local failures.
+- Bind diagnostics to original row bytes including LF/CRLF, keep unknown causes separate from the no-annotation subset, and optionally save private run-level details with `--output` to a new exclusive 0600 file. Stdout remains aggregate-only; original grades and evidence remain intact. See [offline commands](docs/usage.md).
+- Verify 215 passing tests and both required reviews, correcting every confirmed finding with failing-first regressions. Replay three archived native manifests and all 189 diagnostic rows; retain the 21 scope annotations and 26 unknown causes without a new paid cohort or savings claim. Thanks to Roe for the approved engineering follow-up. See [validation](docs/validation/task-measurement.md).
+
 ### Offline Task Measurement and Evidence Diagnostics
 
 - Measure source-bound native 0.159.2 response intervals and independent worker counters without counting inherited prefixes or earlier resumed turns. Preserve unknown complete worker/provider coverage and monetary cost; expose useful lower bounds separately. See [measurement and manifest contract](docs/evaluation.md).

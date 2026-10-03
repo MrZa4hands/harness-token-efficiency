@@ -38,10 +38,12 @@ Jev credentials can be configured during installation through a hidden macOS Key
 
 PR #6 adds offline task measurement and independent omission diagnostics. Its comparison keeps three treatments: reference baseline, deterministic rules without Jev, and hybrid rules with Jev where a recorded query actually occurred. All 189 historical captures were checked; 187 have verified final-turn Codex lower bounds. Complete task/provider coverage remains unknown. Separate annotations identify 21 scope mismatches and 26 unknown causes among the original 47 omissions. See [measurement and diagnostics](docs/evaluation.md).
 
+PR #7 extends those offline tools to explicitly declared multi-turn tasks, bounded streaming and exact original-row hashes including line terminators. Optional diagnostic `--output` saves run-level details to a new private file while stdout remains aggregate-only. Conflicted, disconnected or cyclic worker ancestry contributes no tokens or provider decisions. This follow-up replays archived calibration and diagnostics; it adds no hook installation, paid cohort or optimizer activation. See [usage](docs/usage.md) and [follow-up validation](docs/validation/task-measurement.md).
+
 The delivery remote is `https://github.com/MrZa4hands/harness-token-efficiency.git`; implementation PRs target `develop`. Phases 0–4 use PRs #1–5. Run the standard-library gate from this checkout:
 
 ```sh
 rtk proxy node scripts/verify-context-policy.mjs
 ```
 
-The gate currently passes 185 tests plus syntax, JSON/corpus, document links, and source-scope checks. Deadline-sensitive test files run serially; production deadlines are unchanged. Native compatibility is separately recorded in the validation documents; tests alone cannot establish client coverage.
+The corrected follow-up source passes 215 tests plus syntax, JSON/corpus, document links, and source-scope checks. Deadline-sensitive test files run serially; production deadlines are unchanged. Native compatibility is separately recorded in the validation documents; tests alone cannot establish client coverage.
