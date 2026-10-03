@@ -28,4 +28,22 @@ Cached input and reasoning output are included subsets, never added again. A com
 
 ## Progress
 
-Task 1 calibration complete; implementation and two required reviews remain pending. Jev stays disabled; historical comparisons and promotions remain unchanged.
+Tasks 1–6 are implemented. Gate: 172/172 plus syntax, JSON/corpus, document links and source scope; both required reviews remain pending. Jev stays disabled; original historical comparisons and promotions remain unchanged.
+
+## Native Interval Validation
+
+The new parser admits three parent responses and one worker response, excluding inherited parent history. The observed worker and parent increments match their separate cumulative counters. A second real resumed turn is measured using its prior response boundary; its known lower bound equals only that new response increment. A retained historical capture also produces an available source-bound interval lower bound. All three complete-task outputs remain unavailable because exhaustive native worker/provider closure is not verified. Native probe/resume processes completed; no extra paid cohort or retries were started.
+
+## Historical Diagnostic Results
+
+All 189 original held-out/repeated rows remain byte-identical. Every one of the 47 omission attempts has a separate source-hashed annotation: 21 owner-attested corpus scope mismatches and 26 unknown causes. Variant omissions are baseline 14, deterministic 16, hybrid 17. Scope annotations identify whole-source-body requirements beyond explicitly scoped execution, occurrence-search or empty-range requests; they do not overturn original grades. The retained full-body matcher is a conservative aid, not proof that relevant delivery was absent. No delivery or answer cause is assigned without independent evidence.
+
+Two check failures remain separately annotated: a native capacity failure before requested check execution, and a broader full test suite than the requested single test. Corpus, assessments and original reports are unchanged; no family is promoted.
+
+## Missing-Audit Characterization
+
+`native_hybrid_trial_missing_prior_audit_abstains_with_reason` deterministically forces the first observation write to fail. Saved state persists, context is discarded, the next turn leaves state unchanged and records `prior-conversation-unverified`. Production already passes; this is a characterization, not a claimed failing-first defect repair. Successful continuity includes per-child status and audit diagnostics; deadlines are unchanged.
+
+## RED/GREEN and Limits
+
+New parser, interval accounting, private measurement CLI and evidence diagnostics each first failed their behavioral assertions against empty interface stubs. Focused suites subsequently pass. Private input regressions cover inherited history, duplicate/conflicting responses, resets, overflow, snapshot growth, symlink/FIFO/nonprivate sources, outside paths, source hashes and aggregate budgets. Complete synthetic token coverage is not asserted: Task 1 found no native exhaustive closure contract, and the adapter refuses invented closure events or owner flags. Proof hashes have typed owner-attested kinds; they authenticate no causal claim against a malicious owner. Native CLI evidence does not establish Desktop worker support. Monetary cost remains unknown.
