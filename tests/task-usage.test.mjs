@@ -32,6 +32,58 @@ function inputs() {
 }
 const collect = ({ manifest, captures, decisions }) => collectCompleteTaskUsage(manifest, captures, decisions);
 
+function descendantInputs() {
+  const value = inputs();
+  for (const [thread, parent, hash] of [['grandchild', 'child', 'd'], ['great-grandchild', 'grandchild', 'e']]) {
+    const capture = structuredClone(value.captures[1]);
+    capture.thread_id = thread; capture.parent_thread_id = parent; capture.source_sha256 = hash.repeat(64);
+    capture.responses[0].response_id = thread + '-response'; capture.responses[0].turn_id = thread + '-turn';
+    capture.all_responses = capture.responses;
+    capture.task_records = [{ type: 'task_started', turn_id: thread + '-turn' }];
+    value.captures.push(capture);
+    value.manifest.captures.push({ path: thread + '.jsonl', thread_id: thread, sha256: capture.source_sha256 });
+    value.manifest.intervals.push({ ...structuredClone(value.manifest.intervals[1]), thread_id: thread,
+      end_response_id: thread + '-response', response_ids: [thread + '-response'] });
+  }
+  const billing = structuredClone(value.decisions[0]);
+  billing.path = 'descendant-decisions.jsonl'; billing.source_sha256 = 'f'.repeat(64);
+  billing.records[0].decision_id = 'descendant-provider'; billing.records[0].turn_id = 'great-grandchild-turn';
+  value.decisions.push(billing); value.manifest.decisions.push({ path: billing.path, sha256: billing.source_sha256 });
+  return value;
+}
+
+// Reject the entire disconnected subtree, including its provider decisions, in either capture order.
+test('task_usage_excludes_all_descendants_of_conflicted_worker', () => {
+  const value = descendantInputs(); const conflict = structuredClone(value.captures[1]);
+  conflict.source_sha256 = '9'.repeat(64); value.captures.push(conflict);
+  for (const captures of [value.captures, [...value.captures].reverse()]) {
+    const result = collect({ ...value, captures });
+    assert.deepEqual(result.known_lower_bound, { codex_total_tokens: 100, jev_total_tokens: 10 });
+    assert.equal(result.task_coverage_verified, false);
+  }
+});
+
+test('task_usage_excludes_all_descendants_of_missing_ancestor', () => {
+  const value = descendantInputs(); value.captures = value.captures.filter(capture => capture.thread_id !== 'child');
+  for (const captures of [value.captures, [...value.captures].reverse()]) {
+    assert.deepEqual(collect({ ...value, captures }).known_lower_bound, { codex_total_tokens: 100, jev_total_tokens: 10 });
+  }
+});
+
+test('task_usage_excludes_worker_ancestry_cycles', () => {
+  const value = descendantInputs(); value.captures[1].parent_thread_id = 'great-grandchild';
+  for (const captures of [value.captures, [...value.captures].reverse()]) {
+    assert.deepEqual(collect({ ...value, captures }).known_lower_bound, { codex_total_tokens: 100, jev_total_tokens: 10 });
+  }
+});
+
+test('task_usage_preserves_rooted_descendants_in_either_capture_order', () => {
+  const value = descendantInputs();
+  for (const captures of [value.captures, [...value.captures].reverse()]) {
+    assert.deepEqual(collect({ ...value, captures }).known_lower_bound, { codex_total_tokens: 220, jev_total_tokens: 20 });
+  }
+});
+
 // Conflicting worker copies cannot erase an independently verified root interval or provider decision.
 test('task_usage_excludes_conflicting_workers_without_erasing_independent_bounds', () => {
   const value = inputs(); const conflict = structuredClone(value.captures[1]);

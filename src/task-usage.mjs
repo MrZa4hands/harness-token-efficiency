@@ -49,6 +49,17 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         admitted.set(capture.thread_id, capture); result.source_hashes.push(capture.source_sha256);
       } catch { result.limitations.push('Task capture identity or source unavailable.'); }
     }
+    // A worker and its provider turns require an acyclic admitted ancestry reaching the root.
+    for (const capture of admitted.values()) {
+      let ancestor = capture; const seen = new Set();
+      while (ancestor && ancestor.thread_id !== manifest.root_session_id) {
+        if (seen.has(ancestor.thread_id)) { ancestor = undefined; break; }
+        seen.add(ancestor.thread_id); ancestor = admitted.get(ancestor.parent_thread_id);
+      }
+      if (!ancestor) {
+        admitted.delete(capture.thread_id); result.limitations.push('Task worker ancestry unavailable.');
+      }
+    }
     // Source hash -> admitted thread/turn -> nonoverlapping response interval -> observed lower bound.
     // Native closure stays unknown; independently bound provider decisions are accounted separately.
     const indexes = new Map();
@@ -71,7 +82,6 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
             new Set(interval.response_ids).size !== interval.response_ids.length ||
             !usageValid(interval.initial_usage) || !usageValid(interval.final_usage) ||
             !Array.isArray(capture.all_responses) || !Array.isArray(capture.responses)) throw new Error();
-        if (capture.thread_id !== manifest.root_session_id && !admitted.has(capture.parent_thread_id)) throw new Error();
         const records = capture.all_responses;
         const index = indexes.get(capture.thread_id);
         const start = interval.start_response_id === null ? -1 : index.positions.get(interval.start_response_id) ?? -2;
