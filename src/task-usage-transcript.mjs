@@ -200,7 +200,7 @@ export async function readTaskUsageTranscript(path, options) {
     const responses = allResponses.filter(row => admittedTurns.has(row.root_turn_id));
     if (!responses.length) return unavailable;
     const observedRootTurns = new Set(responses.map(row => row.root_turn_id));
-    if (rootTurns.some(turn => !observedRootTurns.has(turn))) return unavailable;
+    const missingRootTurns = rootTurns.filter(turn => !observedRootTurns.has(turn));
     const settings = responses.map(row => contexts.get(row.turn_id));
     if (settings.some((context, index) => !context || context.root_turn_id !== responses[index].root_turn_id ||
         !validIdentity(context.model) || !validIdentity(context.effort) ||
@@ -211,12 +211,14 @@ export async function readTaskUsageTranscript(path, options) {
     const taskRecords = taskEvents.filter(row => turnIds.has(row.turn_id)).map(row => ({ ...row,
       root_turn_id: row.root_turn_id ?? contexts.get(row.turn_id)?.root_turn_id ?? null }));
     const { byte_limit, read_budget, ...identities } = options;
-    return { available: true, ...identities, root_turn_ids: rootTurns, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
+    return { available: true, ...identities, root_turn_ids: rootTurns.filter(turn => observedRootTurns.has(turn)),
+      missing_root_turn_ids: missingRootTurns, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
       main_model: settings[0].model, reasoning_effort: settings[0].effort,
       parent_thread_id: metadata.parent_thread_id ?? null, agent_path: metadata.agent_path ?? null,
       initial_usage: initial, final_usage: responses.at(-1).thread_usage, responses, all_responses: allResponses,
       task_records: taskRecords, worker_coverage_verified: false, provider_coverage_verified: false,
-      limitations: ['Native exhaustive worker closure unavailable.', 'Native exhaustive provider closure unavailable.'] };
+      limitations: ['Native exhaustive worker closure unavailable.', 'Native exhaustive provider closure unavailable.',
+        ...(missingRootTurns.length ? ['Selected task turns absent from this subject capture.'] : [])] };
   } catch (error) {
     if (error.snapshot_bytes !== undefined) unavailable.snapshot_bytes = error.snapshot_bytes;
     if (error.budget_exceeded) unavailable.budget_exceeded = true;

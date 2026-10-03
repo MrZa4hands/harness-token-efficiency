@@ -40,9 +40,20 @@ test('task_transcript_binds_multiple_task_turns_without_prior_history', async ()
   assert.equal(result.available, true);
   assert.deepEqual(result.responses.map(row => row.response_id), ['child-response', 'correction-response']);
   assert.equal(result.final_usage.total_tokens, 47);
-  for (const turns of [[], ['task-turn', 'task-turn'], ['task-turn', 'missing']]) {
+  for (const turns of [[], ['task-turn', 'task-turn']]) {
     assert.equal((await readTaskUsageTranscript(path, { ...identities, root_turn_ids: turns })).available, false);
   }
+});
+
+// A worker participating only in the first turn retains its verified contribution during a root follow-up.
+test('task_transcript_retains_worker_bound_when_other_task_turns_are_absent_from_its_capture', async () => {
+  const { root_turn_id, ...identities } = options;
+  const result = await readTaskUsageTranscript(await capture('single-worker-turn.jsonl', rows()),
+    { ...identities, root_turn_ids: ['task-turn', 'root-follow-up'] });
+  assert.equal(result.available, true); assert.equal(result.final_usage.total_tokens, 40);
+  assert.deepEqual(result.root_turn_ids, ['task-turn']);
+  assert.deepEqual(result.missing_root_turn_ids, ['root-follow-up']);
+  assert.equal(result.worker_coverage_verified, false);
 });
 
 // Counting inherited parent responses would inflate the worker lower bound.
