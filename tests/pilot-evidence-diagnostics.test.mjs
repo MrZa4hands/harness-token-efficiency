@@ -168,3 +168,61 @@ test('evidence_diagnostics_accepts_empty_private_annotations', async () => {
   assert.equal(result.omission_attempt_count, 1); assert.equal(result.cause_counts.unknown, 1);
   assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 0);
 });
+
+// The real CLI must save bound attempt details privately before announcing aggregate success.
+test('evidence_diagnostics_cli_saves_exclusive_private_report_and_refuses_unsafe_outputs', async () => {
+  const dir = join(root, 'private-output'); await fs.mkdir(dir, { mode: 0o700 });
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('REPORT_PRIVATE_IDENTITY'), task_id: task.task_id, answer: 'REPORT_PRIVATE_TEXT' };
+  const runs = join(dir, 'runs'), annotations = join(dir, 'annotations');
+  await fs.writeFile(runs, JSON.stringify(run) + '\n', { mode: 0o600 });
+  await fs.writeFile(annotations, '', { mode: 0o600 });
+  const before = await fs.readFile(runs);
+  const invoke = (output, preload) => spawnSync(process.execPath, [...(preload ? ['--import', preload] : []),
+    resolve('scripts/diagnose-pilot-evidence.mjs'), '--tasks', resolve('evaluation/tasks.jsonl'), '--runs', runs,
+    '--assessments', annotations, '--output', output], { encoding: 'utf8', timeout: 10000 });
+  const output = join(dir, 'report.json'); const saved = invoke(output);
+  assert.equal(saved.status, 0, saved.stderr);
+  const summary = JSON.parse(saved.stdout); assert.equal(summary.cause_counts.unknown, 1);
+  assert.equal(summary.details, undefined); assert.equal(summary.unassessed_attempt_count, 1);
+  const reportBytes = await fs.readFile(output); const report = JSON.parse(reportBytes);
+  assert.equal(report.details[0].run_id, run.run_id); assert.equal(report.details[0].run_row_sha256, hash(before));
+  assert.equal((await fs.stat(output)).mode & 0o777, 0o600);
+  assert.equal(reportBytes.includes('REPORT_PRIVATE_TEXT'), false);
+  const link = join(dir, 'linked-report'); await fs.symlink(output, link);
+  const publicDir = join(root, 'public-output'); await fs.mkdir(publicDir, { mode: 0o755 });
+  const linkedDir = join(root, 'linked-output'); await fs.symlink(dir, linkedDir);
+  const failed = [invoke(output), invoke(link), invoke(join(publicDir, 'report')), invoke(join(linkedDir, 'report'))];
+  // Real subprocess fault injection reaches write failure after exclusive descriptor creation.
+  const preload = join(dir, 'write-error.mjs');
+  await fs.writeFile(preload, "import fs from 'node:fs/promises'; const open=fs.open; fs.open=async (...args)=>{const file=await open(...args);" +
+    "if(args[0].endsWith('write-failure.json')) file.writeFile=async()=>{throw new Error('REPORT_PRIVATE_WRITE_ERROR')};return file};\n", { mode: 0o600 });
+  failed.push(invoke(join(dir, 'write-failure.json'), preload));
+  for (const result of [saved, ...failed]) {
+    assert.ok(!/REPORT_PRIVATE_/.test(result.stdout + result.stderr));
+  }
+  for (const result of failed) {
+    assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).available, false);
+    assert.ok(!result.stdout.includes('omission_attempt_count'));
+  }
+  assert.deepEqual(await fs.readFile(output), reportBytes); assert.deepEqual(await fs.readFile(runs), before);
+});
+
+// Diagnostics have the same decoded line/record caps as measurement, including empty annotations.
+test('evidence_diagnostics_loader_caps_private_jsonl_before_decoding_growth', async () => {
+  const dir = join(root, 'diagnostic-limits'); await fs.mkdir(dir, { mode: 0o700 });
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+  const task = JSON.parse((await fs.readFile(paths.tasks, 'utf8')).split('\n')[0]);
+  await fs.writeFile(paths.runs, JSON.stringify({ ...makeRun('bounded'), task_id: task.task_id }) + '\n', { mode: 0o600 });
+  for (const count of [100_000, 100_001]) {
+    await fs.writeFile(paths.assessments, '{}\n'.repeat(count), { mode: 0o600 });
+    if (count === 100_000) assert.equal((await loadPilotEvidenceDiagnostic(paths)).invalid_assessment_count, count);
+    else await assert.rejects(loadPilotEvidenceDiagnostic(paths), /input rejected/);
+  }
+  const prefix = '{"ignored":"'; const suffix = '"}\n';
+  for (const bytes of [1_000_000, 1_000_001]) {
+    await fs.writeFile(paths.assessments, prefix + 'x'.repeat(bytes - prefix.length - suffix.length) + suffix, { mode: 0o600 });
+    if (bytes === 1_000_000) assert.equal((await loadPilotEvidenceDiagnostic(paths)).invalid_assessment_count, 1);
+    else await assert.rejects(loadPilotEvidenceDiagnostic(paths), /input rejected/);
+  }
+});
