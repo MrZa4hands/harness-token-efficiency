@@ -129,3 +129,55 @@ test('task_snapshot_rejects_ancestor_replacement_during_open', async () => {
   try { await assert.rejects(readPrivateTaskSnapshot(path), /snapshot rejected/); }
   finally { mocked.mock.restore(); }
 });
+
+// Byte limits alone allow a huge decoded line or unbounded duplicate records.
+test('task_transcript_caps_line_bytes_and_parsed_records_before_deduplication', async () => {
+  const base = rows().map(JSON.stringify).join('\n') + '\n';
+  const admitted = [];
+  for (const count of [100_000, 100_001]) {
+    const path = join(root, 'records-' + count);
+    await fs.writeFile(path, base + '{}\n'.repeat(count - rows().length), { mode: 0o600 });
+    admitted.push((await readTaskUsageTranscript(path, options)).available);
+  }
+  const duplicate = JSON.stringify(rows()[5]) + '\n';
+  const flood = join(root, 'duplicate-flood');
+  await fs.writeFile(flood, base + duplicate.repeat(100_001 - rows().length), { mode: 0o600 });
+  admitted.push((await readTaskUsageTranscript(flood, options)).available);
+  for (const size of [1_000_000, 1_000_001]) {
+    const prefix = '{"type":"response_item","payload":"'; const suffix = '"}\n';
+    const path = join(root, 'line-' + size);
+    await fs.writeFile(path, base + prefix + 'x'.repeat(size - prefix.length - suffix.length) + suffix, { mode: 0o600 });
+    admitted.push((await readTaskUsageTranscript(path, options)).available);
+  }
+  assert.deepEqual(admitted, [true, false, false, true, false]);
+});
+
+// Path replacement must not make validation and parsing operate on different files.
+test('task_transcript_reads_checked_descriptor_and_closes_on_stream_failures', async () => {
+  const original = fs.open;
+  for (const change of ['replace', 'rewrite', 'truncate', 'read-error']) {
+    const path = await capture('descriptor-' + change, rows()); let closed = false; let changed = false;
+    const mocked = mock.method(fs, 'open', async (...args) => {
+      const file = await original(...args); const read = file.read.bind(file); const close = file.close.bind(file);
+      file.close = async () => { closed = true; return close(); };
+      file.read = async (...readArgs) => {
+        if (!changed) {
+          changed = true;
+          if (change === 'replace') {
+            await fs.rename(path, path + '-checked'); await fs.writeFile(path, 'PRIVATE_REPLACEMENT\n', { mode: 0o600 });
+          } else if (change === 'rewrite') await fs.writeFile(path, 'x'.repeat((await file.stat()).size));
+          else if (change === 'truncate') await fs.truncate(path, 1);
+          else throw new Error('PRIVATE_STREAM_ERROR');
+        }
+        return read(...readArgs);
+      }; return file;
+    });
+    try {
+      const result = await readTaskUsageTranscript(path, options);
+      if (change !== 'replace') assert.equal(result.available, false);
+      else if (result.available) assert.equal(result.final_usage.total_tokens, 40);
+      assert.equal(closed, true);
+      assert.ok(!JSON.stringify(result).includes('PRIVATE_'));
+    } finally { mocked.mock.restore(); }
+  }
+});

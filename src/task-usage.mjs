@@ -40,8 +40,20 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
           capture.reasoning_effort !== manifest.reasoning_effort) { result.limitations.push('Task capture identity or source unavailable.'); continue; }
       admitted.set(capture.thread_id, capture); result.source_hashes.push(capture.source_sha256);
     }
+    // Source hash -> admitted thread/turn -> nonoverlapping response interval -> observed lower bound.
+    // Native closure stays unknown; independently bound provider decisions are accounted separately.
+    const indexes = new Map();
+    for (const capture of admitted.values()) indexes.set(capture.thread_id, {
+      positions: new Map(capture.all_responses?.map((row, index) => [row.response_id, index])),
+      selected: new Set(capture.responses?.map(row => row.response_id)), lastEnd: -1,
+    });
+    const orderedIntervals = [...manifest.intervals].sort((a, b) => {
+      const thread = String(a?.thread_id).localeCompare(String(b?.thread_id));
+      const start = row => row?.start_response_id === null ? -1 : indexes.get(row?.thread_id)?.positions.get(row?.start_response_id) ?? -2;
+      return thread || start(a) - start(b);
+    });
     const used = new Set(), intervalKeys = new Set(), events = [], allowedTurns = new Set();
-    for (const interval of manifest.intervals) {
+    for (const interval of orderedIntervals) {
       try {
         const key = JSON.stringify(interval); if (intervalKeys.has(key)) continue;
         const capture = admitted.get(interval?.thread_id);
@@ -51,15 +63,16 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
             !Array.isArray(capture.all_responses) || !Array.isArray(capture.responses)) throw new Error();
         if (capture.thread_id !== manifest.root_session_id && !admitted.has(capture.parent_thread_id)) throw new Error();
         const records = capture.all_responses;
-        const start = interval.start_response_id === null ? -1 : records.findIndex(row => row.response_id === interval.start_response_id);
-        const end = records.findIndex(row => row.response_id === interval.end_response_id);
-        if (start < -1 || interval.start_response_id !== null && start === -1 || end <= start) throw new Error();
+        const index = indexes.get(capture.thread_id);
+        const start = interval.start_response_id === null ? -1 : index.positions.get(interval.start_response_id) ?? -2;
+        const end = index.positions.get(interval.end_response_id) ?? -2;
+        if (start < -1 || end <= start || start < index.lastEnd) throw new Error();
         const selected = records.slice(start + 1, end + 1);
         if (manifest.root_turn_ids !== undefined && !identityValid(interval.turn_id)) throw new Error();
         if (JSON.stringify(selected.map(row => row.response_id)) !== JSON.stringify(interval.response_ids) ||
             selected.some(row => !admittedRootTurns.has(row.root_turn_id) ||
               interval.turn_id !== undefined && row.turn_id !== interval.turn_id ||
-              !capture.responses.some(response => response.response_id === row.response_id) || !usageValid(row.usage) ||
+              !index.selected.has(row.response_id) || !usageValid(row.usage) ||
               used.has(JSON.stringify([capture.thread_id, row.response_id]))) ||
             !sameUsage(records[end].thread_usage, interval.final_usage)) throw new Error();
         if (start === -1) {
@@ -71,7 +84,7 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         if (!usageValid(delta) || !sameUsage(summed, delta)) throw new Error();
         for (const row of selected) { used.add(JSON.stringify([capture.thread_id, row.response_id])); allowedTurns.add(row.turn_id); }
         events.push({ session_id: manifest.root_session_id, thread_id: capture.thread_id, counter_epoch: key, usage: delta });
-        intervalKeys.add(key);
+        intervalKeys.add(key); index.lastEnd = end;
       } catch { result.limitations.push('Task interval boundary or arithmetic unavailable.'); }
     }
     const codex = collectCodexUsage(events, manifest.client_version);
@@ -88,8 +101,9 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         (!hashed || row.session_hash === identityHash(manifest.root_session_id) && turnHashes.has(row.turn_hash)) &&
         (!(raw && hashed) || row.turn_hash === identityHash(row.turn_id));
     };
+    const decisionSources = new Map(decisions.map(source => [source?.path, source]));
     for (const descriptor of manifest.decisions) {
-      const source = decisions.find(value => value?.path === descriptor?.path);
+      const source = decisionSources.get(descriptor?.path);
       if (!hashValid(descriptor?.sha256) || !source || source.source_sha256 !== descriptor.sha256 || !Array.isArray(source.records) ||
           source.records.some(row => !decisionIdentityAdmitted(row))) {
         providerRejected = true; continue;

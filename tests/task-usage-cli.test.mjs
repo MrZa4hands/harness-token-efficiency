@@ -169,3 +169,38 @@ test('task_usage_cli_preserves_root_lower_bound_with_empty_audit_or_worker', asy
   }
   assert.deepEqual(observed, [40, 40]);
 });
+
+// Bounded files can still exceed the invocation budget when read repeatedly.
+test('task_usage_loader_shares_record_and_identity_limits_across_files', async () => {
+  const { path, manifest, dir } = await rootFixture('shared-records');
+  const base = await fs.readFile(join(dir, 'root.jsonl'), 'utf8');
+  const baseCount = base.trim().split('\n').length;
+  const descriptors = [];
+  for (const [index, count] of [100_000, 100_000, 50_000].entries()) {
+    const data = base + '{}\n'.repeat(count - baseCount); const name = 'capture-' + index + '.jsonl';
+    await fs.writeFile(join(dir, name), data, { mode: 0o600 });
+    descriptors.push({ path: name, thread_id: 'root', sha256: sha(data) });
+  }
+  // The cap is accepted even if duplicate descriptors make the final accounting unavailable.
+  manifest.captures = descriptors; await fs.writeFile(path, JSON.stringify(manifest));
+  await assert.doesNotReject(loadPrivateTaskMeasurement(path));
+  await fs.appendFile(join(dir, descriptors[2].path), '{}\n');
+  await assert.rejects(loadPrivateTaskMeasurement(path), /budget/);
+
+});
+
+// Unique decisions share one invocation cap, even when each source stays below file limits.
+test('task_usage_loader_shares_identity_limits_across_files', async () => {
+  const { path, manifest, dir } = await rootFixture('shared-identities');
+  manifest.captures = []; manifest.intervals = [];
+  const decisions = Array.from({ length: 100_000 }, (_, i) => JSON.stringify({ decision_id: String(i) })).join('\n') + '\n';
+  await fs.writeFile(join(dir, 'decisions.jsonl'), decisions, { mode: 0o600 });
+  manifest.decisions = [{ path: 'decisions.jsonl', sha256: sha(decisions) }];
+  await fs.writeFile(path, JSON.stringify(manifest));
+  await assert.doesNotReject(loadPrivateTaskMeasurement(path));
+  const extra = '{"decision_id":"new"}\n';
+  await fs.writeFile(join(dir, 'extra.jsonl'), extra, { mode: 0o600 });
+  manifest.decisions.push({ path: 'extra.jsonl', sha256: sha(extra) });
+  await fs.writeFile(path, JSON.stringify(manifest));
+  await assert.rejects(loadPrivateTaskMeasurement(path), /budget/);
+});
