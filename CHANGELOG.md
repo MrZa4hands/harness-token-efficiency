@@ -6,6 +6,13 @@ read_when: Before assessing the capabilities of the current pilot phase.
 
 ## Unreleased
 
+### Offline Task Measurement and Evidence Diagnostics
+
+- Measure source-bound native 0.159.2 response intervals and independent worker counters without counting inherited prefixes or earlier resumed turns. Preserve unknown complete worker/provider coverage and monetary cost; expose useful lower bounds separately. See [measurement and manifest contract](docs/evaluation.md).
+- Read canonical private manifests, captures and native Jev decisions through bounded descriptor snapshots. Bind decision path and hash, retain valid billing beside abandoned attempts, and preserve partial results beside safe empty/malformed/missing sources. Unsafe/changing input rejects admission with generic errors. No hook installation or network query is added.
+- Diagnose original evidence omissions using exact row hashes and separate typed, owner-attested annotations. Keep all original grades and tuning separation. Across the retained 189 held-out/repeated attempts, 187 final-turn Codex lower bounds are verified; 21 of 47 omissions have scope mismatch annotations and 26 have unknown causes. Compare reference, rules without Jev and hybrid where queried, without claiming total savings or enabling Jev.
+- Verify 185 passing tests and both required review stages; resolve all 11 first-stage findings and the second-stage safe-empty-input finding. Missing-audit behavior has a deterministic characterization with unchanged production deadlines. Thanks to Roe for defining task-wide measurement and the three-treatment comparison. See [validation and retention](docs/validation/task-measurement.md).
+
 ### Phase 4 — Family Qualification and Immediate Withdrawal
 
 - Change only the global mode with `mode off|shadow|enforce --repo <project>`, without restarting Codex or changing Jev settings, family records or native trust. Off leaves the next invocation inert. See [configuration](docs/usage.md).

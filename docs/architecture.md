@@ -23,6 +23,11 @@ Phases 0–4 use Node standard-library modules, native hooks, and existing Git/r
 | `src/context-trial.mjs` | Private expiring native corpus admission, ordered prior-turn/audit/version binding and production-equivalent hybrid continuity; never production activation. |
 | `scripts/manage-context-trial.mjs` | Additive owned global trial registration and exact withdrawal with separate native trust. |
 | `src/pilot-evaluation.mjs` | Usage/transcript/corpus adapters, fixtures, restricted trial CLI and recomputed paired reports. |
+| `src/task-usage-transcript.mjs` | Version-0.159.2 subject response normalization and bounded immutable private snapshots, including safe empty evidence. |
+| `src/task-usage.mjs` | Source-bound interval arithmetic, admitted native decision identities and separate verified lower bounds; no exhaustive closure claim. |
+| `scripts/measure-task-usage.mjs` | Offline private manifest/capture/audit loading with descriptor byte budgets and aggregate-only CLI output. |
+| `src/pilot-evidence-diagnostics.mjs` | Exact-row-bound owner-attested omission causes, preserved original grades and separate tuning aggregation. |
+| `scripts/diagnose-pilot-evidence.mjs` | Bounded corpus/run/annotation snapshots and aggregate-only historical diagnostics. |
 | `scripts/verify-context-policy.mjs` | Run syntax/tests/JSON/corpus/document-link/source-scope checks with serial deadline-sensitive test files. |
 | `tests/context-hook-probe.mjs` | Temporary native compatibility marker and hash-only event observation; never production policy. |
 
@@ -77,3 +82,13 @@ Paired promotion validates all sixty held-out identities per experiment in three
 Seven families can hold qualification records, but only the three context recipes have automatic consumers. Manual reads/checks retain ordinary native authority; rewriting remains passthrough. Explicit component-off settings suppress automatic compositions that need them. A returned qualification status is not proof of emitted native evidence.
 
 The complete phase-4 experiment retained 207 attempts on historical source `746478d`; billing/quality/repeat limitations yielded no promotion. Corrected-source report generation and off/uninstall smoke are separate evidence, not a new qualifying cohort. Existing trusted source registrations remain preserved and observational. See [usage](usage.md), [evaluation](evaluation.md), and [phase 4 validation](validation/phase-4.md).
+
+## Offline Task Measurement and Diagnostics
+
+The new response adapter is separately calibrated for 0.159.2. It binds subject thread/session/root-turn, actual context model/effort, response identities and cumulative increments. Inherited parent responses are excluded; resumed intervals subtract source-backed boundaries. Cached input and reasoning output remain included subsets. A native task-complete event proves neither exhaustive descendant discovery nor complete provider billing, so complete-task totals always remain null on this adapter.
+
+The measurement loader resolves canonical private manifest-relative paths, rejects links/nonregular/nonprivate input, and uses one bounded descriptor snapshot per source. Ancestor device/inode identities are checked around opening and reading; this is not sandboxing against a malicious same-user swap-and-restore. Transcript admission has a 64 MB per-file and 512 MB actual aggregate-byte cap, with at most 128 captures and 128 decision sources. Stable empty, absent or malformed evidence remains unavailable while independent lower bounds survive. Unsafe path/mode/type/budget or changing-snapshot admission rejects the whole load. Exported errors and aggregate CLI diagnostics contain no private bytes or paths.
+
+Decision descriptors bind their own path and byte hash. Native `session_hash` and `turn_hash` must match SHA-256 of admitted identities; any raw identities must agree. Verified separate decision groups contribute a lower bound even beside abandoned billing; conflicting copies contribute nothing. Neither missing audits nor zero-attempt local decisions prove task-wide zero Jev consumption.
+
+Historical diagnostics hash original row bytes, not reserialized objects. Typed proof hashes distinguish trace, delivered evidence, scope annotation and unverified claims; their causal meaning is owner-attested. Stale, unsupported or contradictory annotations remain unknown, and original quality grades are never changed. These offline tools neither register hooks nor enable Jev. See [contracts](evaluation.md) and [validation](validation/task-measurement.md).
