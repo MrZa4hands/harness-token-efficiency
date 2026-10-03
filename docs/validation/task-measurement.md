@@ -28,7 +28,7 @@ Cached input and reasoning output are included subsets, never added again. A com
 
 ## Progress
 
-Tasks 1–6 are implemented. Gate: 172/172 plus syntax, JSON/corpus, document links and source scope; both required reviews remain pending. Jev stays disabled; original historical comparisons and promotions remain unchanged.
+Tasks 1–6 are implemented. The latest completed gate passes 183/183 plus syntax, JSON/corpus, document links and source scope. Third-cycle corrections pass 28 focused tests, including a subsequent malformed-UTF-8 audit case. First-review native and Claude adversarial/structured coverage completed; every confirmed finding is corrected, with convergence false at the three-fix-cycle limit. The second required review remains pending. Jev stays disabled; original historical comparisons and promotions remain unchanged.
 
 ## Native Interval Validation
 
