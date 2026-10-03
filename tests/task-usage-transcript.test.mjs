@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readTaskUsageTranscript, readPrivateTaskSnapshot } from '../src/task-usage-transcript.mjs';
 
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'task-transcript-')));
@@ -43,6 +44,7 @@ test('task_transcript_binds_multiple_task_turns_without_prior_history', async ()
   for (const turns of [[], ['task-turn', 'task-turn']]) {
     assert.equal((await readTaskUsageTranscript(path, { ...identities, root_turn_ids: turns })).available, false);
   }
+  assert.equal((await readTaskUsageTranscript(path, { ...options, root_turn_ids: null })).available, false);
 });
 
 // A worker participating only in the first turn retains its verified contribution during a root follow-up.
@@ -54,6 +56,32 @@ test('task_transcript_retains_worker_bound_when_other_task_turns_are_absent_from
   assert.deepEqual(result.root_turn_ids, ['task-turn']);
   assert.deepEqual(result.missing_root_turn_ids, ['root-follow-up']);
   assert.equal(result.worker_coverage_verified, false);
+});
+
+// Unsupported metadata bodies are discarded while unrelated inherited context cannot poison a valid subject.
+test('task_transcript_discards_unbounded_nested_metadata_fields', async () => {
+  const records = rows(); const nested = { body: 'PRIVATE_METADATA_BODY'.repeat(10_000) };
+  records[0].payload.agent_path = nested;
+  records[4].payload.root_turn_id = nested; records[6].payload.completed_at = nested;
+  records.unshift({ type: 'turn_context', payload: { turn_id: 'unrelated', root_turn_id: 'prior',
+    model: nested, effort: nested } });
+  const result = await readTaskUsageTranscript(await capture('typed-metadata.jsonl', records), options);
+  assert.equal(result.available, true); assert.equal(result.final_usage.total_tokens, 40);
+  assert.ok(result.agent_path === null); assert.ok(result.task_records.at(-1).completed_at === null);
+  assert.ok(!JSON.stringify(result).includes('PRIVATE_METADATA_BODY'));
+});
+
+// Same-turn contradictions remain unsafe in either order; unrelated malformed metadata stays harmless.
+test('task_transcript_rejects_selected_context_conflicts_before_or_after_valid_context', async () => {
+  for (const [index, patch] of [{ root_turn_id: 'outside-task' }, { root_turn_id: null },
+    { model: null }, { effort: {} }].entries()) {
+    for (const before of [true, false]) {
+      const records = rows(); const conflict = structuredClone(records[3]); Object.assign(conflict.payload, patch);
+      records.splice(before ? 3 : 4, 0, conflict);
+      const result = await readTaskUsageTranscript(await capture('context-conflict-' + index + '-' + before, records), options);
+      assert.equal(result.available, false);
+    }
+  }
 });
 
 // Counting inherited parent responses would inflate the worker lower bound.
@@ -167,8 +195,10 @@ test('task_transcript_caps_line_bytes_and_parsed_records_before_deduplication', 
 test('task_transcript_reads_checked_descriptor_and_closes_on_stream_failures', async () => {
   const original = fs.open;
   for (const change of ['replace', 'rewrite', 'truncate', 'read-error']) {
-    const path = await capture('descriptor-' + change, rows()); let closed = false; let changed = false;
+    const path = await capture('descriptor-' + change, rows()); let closed = false; let changed = false; let opens = 0;
+    const originalHash = createHash('sha256').update(await fs.readFile(path)).digest('hex');
     const mocked = mock.method(fs, 'open', async (...args) => {
+      if (args[0] === path) opens++;
       const file = await original(...args); const read = file.read.bind(file); const close = file.close.bind(file);
       file.close = async () => { closed = true; return close(); };
       file.read = async (...readArgs) => {
@@ -186,9 +216,33 @@ test('task_transcript_reads_checked_descriptor_and_closes_on_stream_failures', a
     try {
       const result = await readTaskUsageTranscript(path, options);
       if (change !== 'replace') assert.equal(result.available, false);
-      else if (result.available) assert.equal(result.final_usage.total_tokens, 40);
+      else if (result.available) {
+        assert.equal(result.final_usage.total_tokens, 40); assert.equal(result.source_sha256, originalHash);
+      }
+      assert.equal(opens, 1, 'The admitted pathname must not be reopened');
       assert.equal(closed, true);
       assert.ok(!JSON.stringify(result).includes('PRIVATE_'));
     } finally { mocked.mock.restore(); }
   }
+});
+
+// Valid same-size bytes changed after reading must be rejected by the post-read descriptor stat.
+test('task_transcript_rejects_valid_in_place_rewrite_after_reads', async () => {
+  const path = await capture('post-read-rewrite', rows());
+  const replacement = (await fs.readFile(path, 'utf8')).replace('PRIVATE_TRANSCRIPT_VALUE', 'PRIVATE_TRANSCRIPT_VALUF');
+  const original = fs.open; let closed = false;
+  const mocked = mock.method(fs, 'open', async (...args) => {
+    const file = await original(...args); const stat = file.stat.bind(file); const close = file.close.bind(file); let calls = 0;
+    file.close = async () => { closed = true; return close(); };
+    file.stat = async (...statArgs) => {
+      if (++calls === 2) {
+        await fs.writeFile(path, replacement); const changed = new Date(Date.now() + 2000);
+        await fs.utimes(path, changed, changed);
+      }
+      return stat(...statArgs);
+    };
+    return file;
+  });
+  try { assert.equal((await readTaskUsageTranscript(path, options)).available, false); assert.equal(closed, true); }
+  finally { mocked.mock.restore(); }
 });

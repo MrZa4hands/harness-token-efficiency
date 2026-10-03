@@ -69,7 +69,8 @@ if (entry && import.meta.url === pathToFileURL(entry).href) {
     const args = process.argv.slice(2), options = {};
     while (args.length) {
       const flag = args.shift();
-      if (!['--tasks', '--runs', '--assessments', '--output'].includes(flag) || !args.length || options[flag.slice(2)]) throw new Error();
+      if (!['--tasks', '--runs', '--assessments', '--output'].includes(flag) || !args.length ||
+          Object.hasOwn(options, flag.slice(2)) || !args[0]) throw new Error();
       options[flag.slice(2)] = args.shift();
     }
     if (!['tasks', 'runs', 'assessments'].every(key => options[key])) throw new Error();
@@ -78,7 +79,7 @@ if (entry && import.meta.url === pathToFileURL(entry).href) {
     const { details: tuningDetails, ...tuningSummary } = tuning;
     const output = JSON.stringify({ ...result, tuning: tuningSummary });
     if (Buffer.byteLength(output) > 4_000_000) throw new Error();
-    if (options.output) await savePrivatePilotEvidenceReport(options.output, report);
+    if (Object.hasOwn(options, 'output')) await savePrivatePilotEvidenceReport(options.output, report);
     process.stdout.write(output + '\n');
   } catch {
     process.stdout.write(JSON.stringify({ diagnostic_version: 1, available: false, limitations: ['Private diagnostic input rejected.'] }) + '\n');

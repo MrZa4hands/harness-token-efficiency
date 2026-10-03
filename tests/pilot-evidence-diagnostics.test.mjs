@@ -18,6 +18,48 @@ const assessment = (run, cause, kind) => ({ run_id: run.run_id, task_id: run.tas
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'evidence-diagnostics-')));
 after(() => assert.equal(spawnSync('trash', [root]).status, 0));
 
+// Missing or malformed run identities cannot bind annotations or corrupt the missing-annotation subset.
+test('evidence_diagnostics_rejects_malformed_run_identities', async () => {
+  for (const run_id of [undefined, null, '', {}, 'x'.repeat(257)]) {
+    const run = { ...makeRun('valid'), run_id };
+    assert.throws(() => diagnosePilotEvidence(tasks, [run], [{}]), /identities rejected/);
+  }
+  const result = diagnosePilotEvidence(tasks, [makeRun('valid')], [{}]);
+  assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 1);
+  const dir = join(root, 'malformed-run'); await fs.mkdir(dir, { mode: 0o700 });
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('valid'), task_id: task.task_id }; delete run.run_id;
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+  await fs.writeFile(paths.runs, JSON.stringify(run) + '\n', { mode: 0o600 });
+  await fs.writeFile(paths.assessments, '{}\n', { mode: 0o600 });
+  await assert.rejects(loadPilotEvidenceDiagnostic(paths), /input rejected/);
+});
+
+// JSON key/set ordering does not turn equivalent attested causes into contradictory evidence.
+test('evidence_diagnostics_deduplicate_semantically_equal_annotations', async () => {
+  const run = makeRun('semantic-duplicate');
+  const a = assessment(run, 'answer_omission', 'delivered_evidence');
+  a.requirement_ids.push('docs/usage.md'); a.proof_sha256s.push('e'.repeat(64));
+  a.proofs.push({ sha256: 'e'.repeat(64), kind: 'delivery_trace' });
+  const b = Object.fromEntries(Object.entries(a).reverse());
+  b.requirement_ids = [...a.requirement_ids].reverse(); b.proof_sha256s = [...a.proof_sha256s].reverse();
+  b.proofs = [...a.proofs].reverse().map(p => ({ kind: p.kind, sha256: p.sha256 }));
+  const result = diagnosePilotEvidence([{ ...tasks[0], required_evidence: a.requirement_ids }], [run], [a, b]);
+  assert.equal(result.cause_counts.answer_omission, 1); assert.equal(result.invalid_assessment_count, 0);
+  const dir = join(root, 'semantic-duplicate'); await fs.mkdir(dir, { mode: 0o700 });
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  run.task_id = task.task_id; const bytes = JSON.stringify(run) + '\n';
+  for (const annotation of [a, b]) {
+    annotation.task_id = task.task_id; annotation.run_row_sha256 = hash(bytes);
+    annotation.requirement_ids = [task.required_evidence[0]];
+  }
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+  await fs.writeFile(paths.runs, bytes, { mode: 0o600 });
+  await fs.writeFile(paths.assessments, [a, b].map(JSON.stringify).join('\n') + '\n', { mode: 0o600 });
+  const loaded = await loadPilotEvidenceDiagnostic(paths);
+  assert.equal(loaded.cause_counts.answer_omission, 1); assert.equal(loaded.invalid_assessment_count, 0);
+});
+
 // The source wrapper, not a mutable field in a parsed run, is the provenance authority.
 test('evidence_diagnostics_use_source_hashes_and_reconcile_unknown_subsets', () => {
   const runs = ['accepted', 'missing', 'stale', 'conflict'].map(id => makeRun(id));
@@ -192,7 +234,7 @@ test('evidence_diagnostics_cli_saves_exclusive_private_report_and_refuses_unsafe
   const link = join(dir, 'linked-report'); await fs.symlink(output, link);
   const publicDir = join(root, 'public-output'); await fs.mkdir(publicDir, { mode: 0o755 });
   const linkedDir = join(root, 'linked-output'); await fs.symlink(dir, linkedDir);
-  const failed = [invoke(output), invoke(link), invoke(join(publicDir, 'report')), invoke(join(linkedDir, 'report'))];
+  const failed = [invoke(output), invoke(link), invoke(join(publicDir, 'report')), invoke(join(linkedDir, 'report')), invoke('')];
   // Real subprocess fault injection reaches write failure after exclusive descriptor creation.
   const preload = join(dir, 'write-error.mjs');
   await fs.writeFile(preload, "import fs from 'node:fs/promises'; const open=fs.open; fs.open=async (...args)=>{const file=await open(...args);" +

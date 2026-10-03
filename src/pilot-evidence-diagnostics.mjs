@@ -2,7 +2,14 @@ const causes = ['selection_or_delivery', 'answer_omission', 'corpus_scope_mismat
 const proofKinds = { selection_or_delivery: 'delivery_trace', answer_omission: 'delivered_evidence',
   corpus_scope_mismatch: 'scope_annotation', unknown: 'unverified' };
 const validHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const validIdentity = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
 const emptyCounts = () => Object.fromEntries(causes.map(cause => [cause, 0]));
+
+// Compare attested semantics; JSON object and evidence-set ordering carry no causal meaning.
+const pilotAssessmentIdentity = annotation => JSON.stringify([annotation.run_id, annotation.task_id,
+  annotation.run_row_sha256, annotation.primary_cause, [...annotation.requirement_ids].sort(),
+  [...new Set(annotation.proof_sha256s)].sort(),
+  [...new Set(annotation.proofs.map(proof => JSON.stringify([proof.sha256, proof.kind])))].sort()]);
 
 /** Diagnose historical evidence omissions with owner-attested typed proof hashes; never regrade original runs. */
 export function diagnosePilotEvidence(tasks, runSources, assessments) {
@@ -14,9 +21,10 @@ export function diagnosePilotEvidence(tasks, runSources, assessments) {
   const taskMap = new Map(tasks.map(task => [task.task_id, task]));
   const runMap = new Map(runs.map(run => [run.run_id, run]));
   if (taskMap.size !== tasks.length || runMap.size !== runs.length || runs.some(run =>
-    !taskMap.has(run.task_id) || !validHash(run.run_row_sha256))) throw new Error('Pilot evidence diagnostics identities rejected.');
+    !validIdentity(run.run_id) || !taskMap.has(run.task_id) || !validHash(run.run_row_sha256))) throw new Error('Pilot evidence diagnostics identities rejected.');
   const grouped = new Map(); let invalid = 0;
   for (const annotation of assessments) {
+    if (!validIdentity(annotation?.run_id)) { invalid++; continue; }
     const run = runMap.get(annotation?.run_id); const task = run && taskMap.get(run.task_id);
     const valid = run?.quality?.evidence_complete === false && annotation.task_id === run.task_id &&
       annotation.run_row_sha256 === run.run_row_sha256 && causes.includes(annotation.primary_cause) &&
@@ -42,7 +50,7 @@ export function diagnosePilotEvidence(tasks, runSources, assessments) {
       omission_attempt_count: omitted.filter(run => run.variant === variant).length, cause_counts: emptyCounts() };
     for (const run of omitted) {
       const entries = grouped.get(run.run_id) ?? []; const valid = entries.filter(entry => entry.valid);
-      const distinct = new Set(valid.map(entry => JSON.stringify(entry.annotation)));
+      const distinct = new Set(valid.map(entry => pilotAssessmentIdentity(entry.annotation)));
       const accepted = valid.length === entries.length && distinct.size === 1 ? valid[0]?.annotation : null;
       if (distinct.size > 1) invalid += valid.length;
       const cause = accepted?.primary_cause ?? 'unknown'; result.cause_counts[cause]++;

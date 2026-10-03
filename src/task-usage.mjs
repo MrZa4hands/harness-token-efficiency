@@ -23,22 +23,31 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         !['captures', 'intervals', 'decisions'].every(key => Array.isArray(manifest[key])) ||
         !Array.isArray(captures) || !Array.isArray(decisions) ||
         !Array.isArray(manifest.closure?.worker_source_refs) || !Array.isArray(manifest.closure?.provider_source_refs)) throw new Error();
-    const captureMap = new Map();
+    const captureMap = new Map(), conflictedThreads = new Set();
     for (const capture of captures) {
       if (!capture?.available || !hashValid(capture.source_sha256) || !identityValid(capture.thread_id)) continue;
+      if (conflictedThreads.has(capture.thread_id)) continue;
       const prior = captureMap.get(capture.thread_id);
-      if (prior && JSON.stringify(prior) !== JSON.stringify(capture)) throw new Error();
+      if (prior && JSON.stringify(prior) !== JSON.stringify(capture)) {
+        if (capture.thread_id === manifest.root_session_id) throw new Error();
+        conflictedThreads.add(capture.thread_id); captureMap.delete(capture.thread_id);
+        result.limitations.push('Conflicting task capture identities unavailable.'); continue;
+      }
       captureMap.set(capture.thread_id, capture);
     }
     const admitted = new Map();
     for (const descriptor of manifest.captures) {
-      const capture = captureMap.get(descriptor?.thread_id);
-      if (!hashValid(descriptor?.sha256) || !capture || descriptor.sha256 !== capture.source_sha256 ||
-          capture.root_session_id !== manifest.root_session_id ||
-          !taskRootTurnIds(capture).some(turn => admittedRootTurns.has(turn)) ||
-          capture.client_version !== manifest.client_version || capture.main_model !== manifest.main_model ||
-          capture.reasoning_effort !== manifest.reasoning_effort) { result.limitations.push('Task capture identity or source unavailable.'); continue; }
-      admitted.set(capture.thread_id, capture); result.source_hashes.push(capture.source_sha256);
+      try {
+        const capture = captureMap.get(descriptor?.thread_id);
+        if (!hashValid(descriptor?.sha256) || !capture || descriptor.sha256 !== capture.source_sha256 ||
+            capture.root_session_id !== manifest.root_session_id ||
+            !taskRootTurnIds(capture).some(turn => admittedRootTurns.has(turn)) ||
+            ![capture.responses, capture.all_responses].every(rows => Array.isArray(rows) &&
+              rows.every(row => identityValid(row?.response_id))) ||
+            capture.client_version !== manifest.client_version || capture.main_model !== manifest.main_model ||
+            capture.reasoning_effort !== manifest.reasoning_effort) throw new Error();
+        admitted.set(capture.thread_id, capture); result.source_hashes.push(capture.source_sha256);
+      } catch { result.limitations.push('Task capture identity or source unavailable.'); }
     }
     // Source hash -> admitted thread/turn -> nonoverlapping response interval -> observed lower bound.
     // Native closure stays unknown; independently bound provider decisions are accounted separately.
@@ -52,10 +61,11 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
       const start = row => row?.start_response_id === null ? -1 : indexes.get(row?.thread_id)?.positions.get(row?.start_response_id) ?? -2;
       return thread || start(a) - start(b);
     });
-    const used = new Set(), intervalKeys = new Set(), events = [], allowedTurns = new Set();
+    const used = new Set(), intervalKeys = new Set(), events = [], allowedTurns = new Set(), coveredRootTurns = new Set();
     for (const interval of orderedIntervals) {
       try {
         const key = JSON.stringify(interval); if (intervalKeys.has(key)) continue;
+        intervalKeys.add(key);
         const capture = admitted.get(interval?.thread_id);
         if (!capture || !Array.isArray(interval.response_ids) || !interval.response_ids.length ||
             new Set(interval.response_ids).size !== interval.response_ids.length ||
@@ -66,7 +76,7 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         const index = indexes.get(capture.thread_id);
         const start = interval.start_response_id === null ? -1 : index.positions.get(interval.start_response_id) ?? -2;
         const end = index.positions.get(interval.end_response_id) ?? -2;
-        if (start < -1 || end <= start || start < index.lastEnd) throw new Error();
+        if (start < -1 || end <= start || start < index.lastEnd || end - start !== interval.response_ids.length) throw new Error();
         const selected = records.slice(start + 1, end + 1);
         if (manifest.root_turn_ids !== undefined && !identityValid(interval.turn_id)) throw new Error();
         if (JSON.stringify(selected.map(row => row.response_id)) !== JSON.stringify(interval.response_ids) ||
@@ -83,32 +93,42 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
         const summed = Object.fromEntries(fields.map(field => [field, selected.reduce((total, row) => total + row.usage[field], 0)]));
         if (!usageValid(delta) || !sameUsage(summed, delta)) throw new Error();
         for (const row of selected) { used.add(JSON.stringify([capture.thread_id, row.response_id])); allowedTurns.add(row.turn_id); }
+        if (capture.thread_id === manifest.root_session_id) for (const row of selected) coveredRootTurns.add(row.root_turn_id);
         events.push({ session_id: manifest.root_session_id, thread_id: capture.thread_id, counter_epoch: key, usage: delta });
-        intervalKeys.add(key); index.lastEnd = end;
+        index.lastEnd = end;
       } catch { result.limitations.push('Task interval boundary or arithmetic unavailable.'); }
     }
+    const missingRootTurns = rootTurns.filter(turn => !coveredRootTurns.has(turn)).length;
+    if (missingRootTurns) result.limitations.push('Admitted root turns without verified intervals: ' + missingRootTurns + '.');
     const codex = collectCodexUsage(events, manifest.client_version);
     result.observed_providers.codex = codex;
     result.known_lower_bound.codex_total_tokens = codex.total_tokens;
     const providerRecords = []; let providerRejected = false;
     const identityHash = id => createHash('sha256').update(id).digest('hex');
-    const turnHashes = new Set([...allowedTurns].map(identityHash));
+    const sessionHash = identityHash(manifest.root_session_id);
+    const turnHashById = new Map([...allowedTurns].map(id => [id, identityHash(id)]));
+    const turnHashes = new Set(turnHashById.values());
     const decisionIdentityAdmitted = row => {
       if (!row) return false;
       const raw = row.session_id !== undefined || row.turn_id !== undefined;
       const hashed = row.session_hash !== undefined || row.turn_hash !== undefined;
       return (raw || hashed) && (!raw || row.session_id === manifest.root_session_id && allowedTurns.has(row.turn_id)) &&
-        (!hashed || row.session_hash === identityHash(manifest.root_session_id) && turnHashes.has(row.turn_hash)) &&
-        (!(raw && hashed) || row.turn_hash === identityHash(row.turn_id));
+        (!hashed || row.session_hash === sessionHash && turnHashes.has(row.turn_hash)) &&
+        (!(raw && hashed) || row.turn_hash === turnHashById.get(row.turn_id));
     };
     const decisionSources = new Map(decisions.map(source => [source?.path, source]));
+    const sourceAdmission = new Map(), acceptedRecords = new Set();
     for (const descriptor of manifest.decisions) {
       const source = decisionSources.get(descriptor?.path);
-      if (!hashValid(descriptor?.sha256) || !source || source.source_sha256 !== descriptor.sha256 || !Array.isArray(source.records) ||
-          source.records.some(row => !decisionIdentityAdmitted(row))) {
+      if (!hashValid(descriptor?.sha256) || !source || source.source_sha256 !== descriptor.sha256 || !Array.isArray(source.records)) {
         providerRejected = true; continue;
       }
-      result.source_hashes.push(source.source_sha256); providerRecords.push(...source.records);
+      if (!sourceAdmission.has(source.records)) sourceAdmission.set(source.records, source.records.every(decisionIdentityAdmitted));
+      if (!sourceAdmission.get(source.records)) { providerRejected = true; continue; }
+      result.source_hashes.push(source.source_sha256);
+      if (acceptedRecords.has(source.records)) continue;
+      acceptedRecords.add(source.records);
+      for (const record of source.records) providerRecords.push(record);
     }
     const jev = providerRejected ? unknownJev : collectJevUsage(providerRecords);
     result.observed_providers.jev = jev;
