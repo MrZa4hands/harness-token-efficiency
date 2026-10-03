@@ -2,28 +2,31 @@ import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readPrivateTaskSnapshot, resolvePrivateTaskReference } from '../src/task-usage-transcript.mjs';
+import { readPrivateTaskSnapshot, readTaskFileSnapshot, resolvePrivateTaskReference } from '../src/task-usage-transcript.mjs';
+import { fileURLToPath } from 'node:url';
 import { diagnosePilotEvidence } from '../src/pilot-evidence-diagnostics.mjs';
 
 /** Load frozen pilot rows with exact byte hashes and private annotations; returned details stay private. */
 export async function loadPilotEvidenceDiagnostic(options) {
-  const canonical = await fs.readFile(new URL('../evaluation/tasks.jsonl', import.meta.url));
-  const tasksBytes = await fs.readFile(options.tasks);
-  if (!tasksBytes.equals(canonical)) throw new Error('Pilot evidence corpus rejected.');
-  const directory = dirname(resolve(options.assessments));
-  const runPath = await resolvePrivateTaskReference(directory, basename(resolve(options.runs)));
-  if (runPath !== resolve(options.runs)) throw new Error('Pilot evidence run reference rejected.');
-  const annotationPath = await resolvePrivateTaskReference(directory, basename(resolve(options.assessments)));
-  const runSource = await readPrivateTaskSnapshot(runPath); const annotationSource = await readPrivateTaskSnapshot(annotationPath);
-  const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  const rows = decode(runSource.data).split('\n').filter(line => line.trim());
-  const runs = rows.map(line => ({ ...JSON.parse(line), run_row_sha256: createHash('sha256').update(Buffer.from(line)).digest('hex') }));
-  const annotations = decode(annotationSource.data).split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
-  const tasks = decode(canonical).split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
-  const result = diagnosePilotEvidence(tasks, runs, annotations);
-  result.source_hashes = { corpus: createHash('sha256').update(canonical).digest('hex'),
-    runs: runSource.source_sha256, assessments: annotationSource.source_sha256 };
-  return result;
+  try {
+    const canonical = (await readTaskFileSnapshot(fileURLToPath(new URL('../evaluation/tasks.jsonl', import.meta.url)), 4_000_000, false)).data;
+    const tasksBytes = (await readTaskFileSnapshot(options.tasks, canonical.length, false)).data;
+    if (!tasksBytes.equals(canonical)) throw new Error('Pilot evidence corpus rejected.');
+    const directory = dirname(resolve(options.assessments));
+    const runPath = await resolvePrivateTaskReference(directory, basename(resolve(options.runs)));
+    if (runPath !== resolve(options.runs)) throw new Error('Pilot evidence run reference rejected.');
+    const annotationPath = await resolvePrivateTaskReference(directory, basename(resolve(options.assessments)));
+    const runSource = await readPrivateTaskSnapshot(runPath); const annotationSource = await readPrivateTaskSnapshot(annotationPath);
+    const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const rows = decode(runSource.data).split('\n').filter(line => line.trim());
+    const runs = rows.map(line => ({ ...JSON.parse(line), run_row_sha256: createHash('sha256').update(Buffer.from(line)).digest('hex') }));
+    const annotations = decode(annotationSource.data).split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
+    const tasks = decode(canonical).split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
+    const result = diagnosePilotEvidence(tasks, runs, annotations);
+    result.source_hashes = { corpus: createHash('sha256').update(canonical).digest('hex'),
+      runs: runSource.source_sha256, assessments: annotationSource.source_sha256 };
+    return result;
+  } catch { throw new Error('Pilot evidence diagnostic input rejected.'); }
 }
 
 const entry = process.argv[1] ? await fs.realpath(process.argv[1]).catch(() => null) : null;

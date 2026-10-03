@@ -1,37 +1,55 @@
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { resolve, relative, join, isAbsolute } from 'node:path';
+import { resolve, relative, join, isAbsolute, dirname } from 'node:path';
 import { collectCodexUsage } from './pilot-evaluation.mjs';
 
 const fields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'];
-const zeroUsage = () => Object.fromEntries(fields.map(key => [key, 0]));
 const validIdentity = value => typeof value === 'string' && value.length > 0 && value.length <= 256;
 const validUsage = usage => collectCodexUsage([{ session_id: 'validation', thread_id: 'validation', counter_epoch: '0', usage }], '0.159.2').available;
 
 /** Resolve private task references inside the canonical manifest directory; reject every linked or nonprivate component. */
 export async function resolvePrivateTaskReference(directory, reference) {
-  if (typeof reference !== 'string' || !reference || isAbsolute(reference)) throw new Error('Task usage reference rejected.');
-  const root = resolve(directory); const target = resolve(root, reference); const local = relative(root, target);
-  if (!local || local === '..' || local.startsWith('../') || await fs.realpath(root) !== root) throw new Error('Task usage reference rejected.');
-  const rootStat = await fs.lstat(root);
-  if (!rootStat.isDirectory() || rootStat.uid !== process.getuid() || (rootStat.mode & 0o077) !== 0) throw new Error('Task usage reference rejected.');
-  let current = root; const parts = local.split('/');
-  for (let index = 0; index < parts.length; index++) {
-    current = join(current, parts[index]); const stat = await fs.lstat(current);
-    if (stat.isSymbolicLink() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0 ||
-        (index < parts.length - 1 ? !stat.isDirectory() : !stat.isFile())) throw new Error('Task usage reference rejected.');
+  try {
+    if (typeof reference !== 'string' || !reference || isAbsolute(reference)) throw new Error('Task usage reference rejected.');
+    const root = resolve(directory); const target = resolve(root, reference); const local = relative(root, target);
+    if (!local || local === '..' || local.startsWith('../') || await fs.realpath(root) !== root) throw new Error('Task usage reference rejected.');
+    const rootStat = await fs.lstat(root);
+    if (!rootStat.isDirectory() || rootStat.uid !== process.getuid() || (rootStat.mode & 0o077) !== 0) throw new Error('Task usage reference rejected.');
+    let current = root; const parts = local.split('/');
+    for (let index = 0; index < parts.length; index++) {
+      current = join(current, parts[index]); const stat = await fs.lstat(current);
+      if (stat.isSymbolicLink() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0 ||
+          (index < parts.length - 1 ? !stat.isDirectory() : !stat.isFile())) throw new Error('Task usage reference rejected.');
+    }
+    return target;
+  } catch (error) {
+    const rejected = new Error('Task usage reference rejected.');
+    if (error.code === 'ENOENT') rejected.code = 'ENOENT';
+    throw rejected;
   }
-  return target;
 }
 
-/** Read a private task file from one bounded immutable snapshot; bytes never enter error messages. */
-export async function readPrivateTaskSnapshot(path, byteLimit = 4_000_000) {
+// Revalidate ancestor identities around descriptor opening and reads; same-user swap-and-restore is not sandboxed.
+async function taskSnapshotAncestors(path) {
+  const result = []; let directory = dirname(resolve(path));
+  while (true) {
+    const stat = await fs.lstat(directory, { bigint: true });
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error();
+    result.push([directory, String(stat.dev), String(stat.ino)]);
+    const parent = dirname(directory); if (parent === directory) return JSON.stringify(result); directory = parent;
+  }
+}
+
+/** Read a bounded task file snapshot; public corpus files still require stable regular descriptors and ancestors. */
+export async function readTaskFileSnapshot(path, byteLimit, requirePrivate = true) {
   let file;
   try {
+    const ancestors = await taskSnapshotAncestors(path);
     file = await fs.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const before = await file.stat({ bigint: true });
-    if (!before.isFile() || before.uid !== BigInt(process.getuid()) || (before.mode & 0o077n) !== 0n ||
+    if (await taskSnapshotAncestors(path) !== ancestors || !before.isFile() ||
+        requirePrivate && (before.uid !== BigInt(process.getuid()) || (before.mode & 0o077n) !== 0n) ||
         before.size === 0n || before.size > BigInt(byteLimit)) throw new Error();
     const size = Number(before.size); const data = Buffer.alloc(size); let offset = 0;
     while (offset < size) {
@@ -39,10 +57,16 @@ export async function readPrivateTaskSnapshot(path, byteLimit = 4_000_000) {
       if (!bytesRead) throw new Error(); offset += bytesRead;
     }
     const after = await file.stat({ bigint: true });
-    if (['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => before[key] !== after[key])) throw new Error();
+    if (await taskSnapshotAncestors(path) !== ancestors ||
+        ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => before[key] !== after[key])) throw new Error();
     return { data, snapshot_bytes: size, source_sha256: createHash('sha256').update(data).digest('hex') };
   } catch { throw new Error('Task usage private snapshot rejected.'); }
   finally { await file?.close(); }
+}
+
+/** Read a private task snapshot with owner-only permissions; bytes never enter error messages. */
+export async function readPrivateTaskSnapshot(path, byteLimit = 4_000_000) {
+  return readTaskFileSnapshot(path, byteLimit, true);
 }
 
 /** Read task-scoped native usage, excluding inherited responses; exhaustive worker/provider closure is unobservable. */
@@ -52,7 +76,9 @@ export async function readTaskUsageTranscript(path, options) {
   try {
     if (!options || options.client_version !== '0.159.2' ||
         !['thread_id', 'root_session_id', 'root_turn_id'].every(key => validIdentity(options[key]))) return unavailable;
-    const snapshot = await readPrivateTaskSnapshot(path, 64_000_000);
+    const snapshot = await readPrivateTaskSnapshot(path, Math.min(64_000_000, options.byte_limit ?? 64_000_000));
+    // Safe bytes still consume the input budget when their native records cannot be normalized.
+    unavailable.snapshot_bytes = snapshot.snapshot_bytes; unavailable.source_sha256 = snapshot.source_sha256;
     const text = new TextDecoder('utf-8', { fatal: true }).decode(snapshot.data);
     if (!text.endsWith('\n')) return unavailable;
     const rows = text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
@@ -97,7 +123,8 @@ export async function readTaskUsageTranscript(path, options) {
       ['task_started', 'task_complete'].includes(row.payload?.type) && turnIds.has(row.payload.turn_id) ?
       [{ record_index: index, type: row.payload.type, turn_id: row.payload.turn_id,
         root_turn_id: row.payload.root_turn_id ?? options.root_turn_id, completed_at: row.payload.completed_at ?? null }] : []);
-    return { available: true, ...options, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
+    const { byte_limit, ...identities } = options;
+    return { available: true, ...identities, source_sha256: snapshot.source_sha256, snapshot_bytes: snapshot.snapshot_bytes,
       main_model: settings[0].model, reasoning_effort: settings[0].effort,
       parent_thread_id: metadata[0].parent_thread_id ?? null, agent_path: metadata[0].agent_path ?? null,
       initial_usage: initial, final_usage: responses.at(-1).thread_usage, responses, all_responses: allResponses,

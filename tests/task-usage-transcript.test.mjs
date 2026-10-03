@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { readTaskUsageTranscript } from '../src/task-usage-transcript.mjs';
+import { readTaskUsageTranscript, readPrivateTaskSnapshot } from '../src/task-usage-transcript.mjs';
 
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'task-transcript-')));
 after(() => assert.equal(spawnSync('trash', [root]).status, 0));
@@ -94,4 +94,21 @@ test('task_transcript_versioned_fixture_is_native_shaped', async () => {
   const path = join(root, 'fixture.jsonl'); await fs.writeFile(path,
     await fs.readFile(resolve('evaluation/fixtures/task-usage-01592.jsonl')), { mode: 0o600 });
   assert.equal((await readTaskUsageTranscript(path, options)).final_usage.total_tokens, 40);
+});
+
+// Final-component O_NOFOLLOW alone does not protect a concurrently replaced ancestor.
+test('task_snapshot_rejects_ancestor_replacement_during_open', async () => {
+  const dir = join(root, 'ancestor'); const outside = join(root, 'outside');
+  await fs.mkdir(dir, { mode: 0o700 }); await fs.mkdir(outside, { mode: 0o700 });
+  const path = join(dir, 'capture'); await fs.writeFile(path, 'inside', { mode: 0o600 });
+  await fs.writeFile(join(outside, 'capture'), 'outside', { mode: 0o600 });
+  const original = fs.open; let changed = false;
+  const mocked = mock.method(fs, 'open', async (...args) => {
+    if (args[0] === path && !changed) {
+      changed = true; await fs.rename(dir, dir + '-saved'); await fs.symlink(outside, dir);
+    }
+    return original(...args);
+  });
+  try { await assert.rejects(readPrivateTaskSnapshot(path), /snapshot rejected/); }
+  finally { mocked.mock.restore(); }
 });

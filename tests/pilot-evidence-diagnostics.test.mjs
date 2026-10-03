@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { diagnosePilotEvidence } from '../src/pilot-evidence-diagnostics.mjs';
+import { loadPilotEvidenceDiagnostic } from '../scripts/diagnose-pilot-evidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const proof = 'd'.repeat(64);
@@ -80,4 +81,37 @@ test('evidence_diagnostics_cli_preserves_private_source_bytes', async () => {
   await fs.chmod(paths.runs, 0o644); assert.equal(invoke().status, 1); await fs.chmod(paths.runs, 0o600);
   await fs.rename(paths.assessments, join(dir, 'saved')); await fs.symlink(join(dir, 'saved'), paths.assessments);
   assert.equal(invoke().status, 1);
+});
+
+// A corpus argument is a bounded regular snapshot, even before run admission.
+test('evidence_diagnostics_rejects_blocking_and_oversized_corpus_arguments', async () => {
+  const dir = join(root, 'corpus-bounds'); await fs.mkdir(dir, { mode: 0o700 });
+  const fifo = join(dir, 'tasks-fifo'); assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  const oversized = join(dir, 'tasks-large'); const file = await fs.open(oversized, 'w', 0o600);
+  await file.truncate(4_000_001); await file.close();
+  for (const tasks of [fifo, oversized]) {
+    const result = spawnSync(process.execPath, [resolve('scripts/diagnose-pilot-evidence.mjs'), '--tasks', tasks,
+      '--runs', join(dir, 'absent'), '--assessments', join(dir, 'absent-annotations')], { encoding: 'utf8', timeout: 1000 });
+    assert.equal(result.error, undefined); assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stdout).available, false);
+  }
+});
+
+// Module consumers must not receive JSON parser excerpts from private source rows.
+test('evidence_diagnostics_exported_loader_redacts_private_parser_errors', async () => {
+  const dir = join(root, 'loader-errors'); await fs.mkdir(dir, { mode: 0o700 });
+  const runs = join(dir, 'runs.jsonl'); const assessments = join(dir, 'assessments.jsonl');
+  await fs.writeFile(runs, 'PRIVATE_TRANSCRIPT_VALUE\n', { mode: 0o600 });
+  await fs.writeFile(assessments, '{}\n', { mode: 0o600 });
+  await assert.rejects(loadPilotEvidenceDiagnostic({ tasks: resolve('evaluation/tasks.jsonl'), runs, assessments }), error =>
+    !error.message.includes('PRIVATE') && !error.message.includes(dir));
+});
+
+// Unknown variants remain in cohort totals without resolving inherited object members.
+test('evidence_diagnostics_handles_unknown_variant_without_prototype_access', () => {
+  for (const variant of ['constructor', 'toString', '__proto__']) {
+    const result = diagnosePilotEvidence(tasks, [makeRun('unknown-variant', variant)], []);
+    assert.equal(result.attempt_count, 1); assert.equal(result.cause_counts.unknown, 1);
+    assert.equal(Object.keys(result.variant_counts).length, 3);
+  }
 });

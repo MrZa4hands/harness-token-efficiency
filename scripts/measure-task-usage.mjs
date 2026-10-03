@@ -4,37 +4,61 @@ import { pathToFileURL } from 'node:url';
 import { readPrivateTaskSnapshot, readTaskUsageTranscript, resolvePrivateTaskReference } from '../src/task-usage-transcript.mjs';
 import { collectCompleteTaskUsage } from '../src/task-usage.mjs';
 
-/** Load explicitly admitted private task captures; no discovery, inference, writes or credentials. */
-export async function loadPrivateTaskMeasurement(manifestPath) {
-  const absolute = resolve(manifestPath); const directory = dirname(absolute);
-  const path = await resolvePrivateTaskReference(directory, basename(absolute));
-  const snapshot = await readPrivateTaskSnapshot(path);
-  const manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(snapshot.data));
-  if (!Array.isArray(manifest.captures) || manifest.captures.length > 128 ||
-      !Array.isArray(manifest.decisions) || manifest.decisions.length > 128) throw new Error('Task usage manifest rejected.');
-  let totalBytes = 0; const capturePaths = [];
-  for (const descriptor of manifest.captures) {
-    const capturePath = await resolvePrivateTaskReference(directory, descriptor.path);
-    const stat = await fs.lstat(capturePath); totalBytes += stat.size;
-    if (stat.size > 64_000_000 || totalBytes > 512_000_000) throw new Error('Task usage transcript budget exceeded.');
-    capturePaths.push(capturePath);
-  }
-  const captures = [];
-  for (let index = 0; index < capturePaths.length; index++) {
-    const descriptor = manifest.captures[index];
-    captures.push(await readTaskUsageTranscript(capturePaths[index], { client_version: manifest.client_version,
-      thread_id: descriptor.thread_id, root_session_id: manifest.root_session_id, root_turn_id: manifest.root_turn_id }));
-  }
-  const decisions = [];
-  for (const descriptor of manifest.decisions) {
-    const decisionPath = await resolvePrivateTaskReference(directory, descriptor.path);
-    const source = await readPrivateTaskSnapshot(decisionPath);
-    const text = new TextDecoder('utf-8', { fatal: true }).decode(source.data);
-    decisions.push({ source_sha256: source.source_sha256, records: text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line)) });
-  }
-  const result = collectCompleteTaskUsage(manifest, captures, decisions);
-  result.source_hashes = [...new Set([snapshot.source_sha256, ...result.source_hashes])].sort();
-  return result;
+// Only absence inside an otherwise validated private root is an unavailable source, not unsafe admission.
+async function resolveOptionalTaskSource(directory, path) {
+  try { return await resolvePrivateTaskReference(directory, path); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+/** Load admitted private task captures; callers may only narrow the 512 MB transcript byte budget. */
+export async function loadPrivateTaskMeasurement(manifestPath, captureByteLimit = 512_000_000) {
+  try {
+    if (!Number.isSafeInteger(captureByteLimit) || captureByteLimit < 1 || captureByteLimit > 512_000_000) {
+      throw new Error('Task usage transcript budget rejected.');
+    }
+    const absolute = resolve(manifestPath); const directory = dirname(absolute);
+    const path = await resolvePrivateTaskReference(directory, basename(absolute));
+    const snapshot = await readPrivateTaskSnapshot(path);
+    const manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(snapshot.data));
+    if (!Array.isArray(manifest.captures) || manifest.captures.length > 128 ||
+        !Array.isArray(manifest.decisions) || manifest.decisions.length > 128) throw new Error('Task usage manifest rejected.');
+    let totalBytes = 0; const capturePaths = [];
+    for (const descriptor of manifest.captures) {
+      const capturePath = await resolveOptionalTaskSource(directory, descriptor.path);
+      if (!capturePath) { capturePaths.push(null); continue; }
+      const stat = await fs.lstat(capturePath); totalBytes += stat.size;
+      if (stat.size > 64_000_000 || totalBytes > captureByteLimit) throw new Error('Task usage transcript budget exceeded.');
+      capturePaths.push(capturePath);
+    }
+    const captures = []; let snapshotBytes = 0;
+    for (let index = 0; index < capturePaths.length; index++) {
+      const descriptor = manifest.captures[index];
+      if (!capturePaths[index]) { captures.push({ available: false }); continue; }
+      const capture = await readTaskUsageTranscript(capturePaths[index], { client_version: manifest.client_version,
+        thread_id: descriptor.thread_id, root_session_id: manifest.root_session_id, root_turn_id: manifest.root_turn_id,
+        byte_limit: Math.min(64_000_000, captureByteLimit - snapshotBytes) });
+      if (!Number.isSafeInteger(capture.snapshot_bytes) || capture.snapshot_bytes < 1) {
+        throw new Error('Task usage transcript snapshot or budget rejected.');
+      }
+      snapshotBytes += capture.snapshot_bytes; captures.push(capture);
+    }
+    const decisions = [];
+    for (const descriptor of manifest.decisions) {
+      const decisionPath = await resolveOptionalTaskSource(directory, descriptor.path);
+      if (!decisionPath) { decisions.push({ path: descriptor.path, source_sha256: null, records: null }); continue; }
+      const source = await readPrivateTaskSnapshot(decisionPath);
+      let records;
+      try {
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(source.data);
+        records = text.split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
+      }
+      catch { records = null; }
+      decisions.push({ path: descriptor.path, source_sha256: source.source_sha256, records });
+    }
+    const result = collectCompleteTaskUsage(manifest, captures, decisions);
+    result.source_hashes = [...new Set([snapshot.source_sha256, ...result.source_hashes])].sort();
+    return result;
+  } catch { throw new Error('Task usage private manifest or budget rejected.'); }
 }
 
 const entry = process.argv[1] ? await fs.realpath(process.argv[1]).catch(() => null) : null;

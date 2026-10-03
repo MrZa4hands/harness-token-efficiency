@@ -42,7 +42,7 @@ export function diagnosePilotEvidence(tasks, runs, assessments) {
       const accepted = valid.length === entries.length && distinct.size === 1 ? valid[0]?.annotation : null;
       if (distinct.size > 1) invalid += valid.length;
       const cause = accepted?.primary_cause ?? 'unknown'; result.cause_counts[cause]++;
-      if (result.variant_counts[run.variant]) result.variant_counts[run.variant].cause_counts[cause]++;
+      if (Object.hasOwn(result.variant_counts, run.variant)) result.variant_counts[run.variant].cause_counts[cause]++;
       if (!accepted) result.unassessed_attempt_count++;
       result.details.push({ run_id: run.run_id, task_id: run.task_id, run_row_sha256: run.run_row_sha256,
         requirement_ids: accepted?.requirement_ids ?? [], proof_sha256s: accepted?.proof_sha256s ?? [],

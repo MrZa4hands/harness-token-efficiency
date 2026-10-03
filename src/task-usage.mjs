@@ -1,4 +1,5 @@
 import { collectCodexUsage, collectJevUsage } from './pilot-evaluation.mjs';
+import { createHash } from 'node:crypto';
 
 const fields = ['input_tokens', 'cached_input_tokens', 'cache_write_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'];
 const usageValid = value => collectCodexUsage([{ session_id: 'validation', thread_id: 'validation', counter_epoch: '0', usage: value }], '0.159.2').available;
@@ -72,17 +73,34 @@ export function collectCompleteTaskUsage(manifest, captures, decisions) {
     result.observed_providers.codex = codex;
     result.known_lower_bound.codex_total_tokens = codex.total_tokens;
     const providerRecords = []; let providerRejected = false;
+    const identityHash = id => createHash('sha256').update(id).digest('hex');
+    const turnHashes = new Set([...allowedTurns].map(identityHash));
+    const decisionIdentityAdmitted = row => {
+      if (!row) return false;
+      const raw = row.session_id !== undefined || row.turn_id !== undefined;
+      const hashed = row.session_hash !== undefined || row.turn_hash !== undefined;
+      return (raw || hashed) && (!raw || row.session_id === manifest.root_session_id && allowedTurns.has(row.turn_id)) &&
+        (!hashed || row.session_hash === identityHash(manifest.root_session_id) && turnHashes.has(row.turn_hash)) &&
+        (!(raw && hashed) || row.turn_hash === identityHash(row.turn_id));
+    };
     for (const descriptor of manifest.decisions) {
-      const source = decisions.find(value => value?.source_sha256 === descriptor?.sha256);
-      if (!hashValid(descriptor?.sha256) || !source || !Array.isArray(source.records) ||
-          source.records.some(row => row?.session_id !== manifest.root_session_id || !allowedTurns.has(row.turn_id))) {
+      const source = decisions.find(value => value?.path === descriptor?.path);
+      if (!hashValid(descriptor?.sha256) || !source || source.source_sha256 !== descriptor.sha256 || !Array.isArray(source.records) ||
+          source.records.some(row => !decisionIdentityAdmitted(row))) {
         providerRejected = true; continue;
       }
       result.source_hashes.push(source.source_sha256); providerRecords.push(...source.records);
     }
     const jev = providerRejected ? unknownJev : collectJevUsage(providerRecords);
     result.observed_providers.jev = jev;
-    result.known_lower_bound.jev_total_tokens = jev.total_tokens;
+    // Incomplete billing does not erase other independently verified decisions; conflicting identities contribute nothing.
+    const decisionGroups = new Map();
+    for (const record of providerRecords) {
+      const group = decisionGroups.get(record.decision_id) ?? []; group.push(record); decisionGroups.set(record.decision_id, group);
+    }
+    const knownBilling = [...decisionGroups.values()].map(group => collectJevUsage(group)).filter(usage => usage.available);
+    const knownTokens = knownBilling.reduce((total, usage) => total + usage.total_tokens, 0);
+    result.known_lower_bound.jev_total_tokens = knownBilling.length && Number.isSafeInteger(knownTokens) ? knownTokens : null;
     if (!jev.available) result.limitations.push('Observed Jev billing unavailable.');
     // Native terminal records are not exhaustive worker or provider discovery; flags/references never authorize totals.
     result.source_hashes = [...new Set(result.source_hashes)].sort();

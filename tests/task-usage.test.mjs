@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { collectCompleteTaskUsage } from '../src/task-usage.mjs';
 
 const usage = (input, output) => ({ input_tokens: input, cached_input_tokens: 0, cache_write_input_tokens: 0,
@@ -25,11 +26,26 @@ function inputs() {
       end_response_id: 'worker-response', initial_usage: usage(0, 0), final_usage: usage(30, 10), response_ids: ['worker-response'] }],
     decisions: [{ path: 'decisions.jsonl', sha256: decisionHash }],
     closure: { worker_source_refs: [], provider_source_refs: [] } };
-  const decisions = [{ source_sha256: decisionHash, records: [{ decision_id: 'provider', session_id: 'root', turn_id: 'turn',
+  const decisions = [{ path: 'decisions.jsonl', source_sha256: decisionHash, records: [{ decision_id: 'provider', session_id: 'root', turn_id: 'turn',
     provider_attempts: 1, provider_usage: { input_tokens: 7, output_tokens: 3 }, versions: { jev_model: 'fixture-model' }, applied: false }] }];
   return { manifest, captures: [parent, child], decisions };
 }
 const collect = ({ manifest, captures, decisions }) => collectCompleteTaskUsage(manifest, captures, decisions);
+
+// Native immutable decisions use identity hashes, including rejected billed queries.
+test('task_usage_admits_native_hashed_decisions_without_rewriting_sources', () => {
+  const value = inputs(); const row = value.decisions[0].records[0];
+  const hash = id => createHash('sha256').update(id).digest('hex');
+  delete row.session_id; delete row.turn_id;
+  row.session_hash = hash('root'); row.turn_hash = hash('turn');
+  assert.equal(collect(value).known_lower_bound.jev_total_tokens, 10);
+  row.turn_hash = hash('outside');
+  assert.equal(collect(value).known_lower_bound.jev_total_tokens, null);
+  row.turn_hash = hash('turn'); row.session_id = 'outside';
+  assert.equal(collect(value).known_lower_bound.jev_total_tokens, null);
+  row.session_id = 'root'; row.turn_id = 'worker-turn';
+  assert.equal(collect(value).known_lower_bound.jev_total_tokens, null, 'Raw and hashed identities must name the same admitted turn');
+});
 
 // Prior unrelated consumption and duplicate snapshots must not inflate admitted interval usage.
 test('task_usage_counts_interval_and_worker_once', () => {
@@ -79,9 +95,21 @@ test('task_usage_rejects_inconsistent_boundaries_and_identity', () => {
 test('task_usage_rejects_conflicting_or_missing_provider_usage', () => {
   for (const mutate of [v => v.decisions[0].records[0].provider_usage = null,
     v => v.decisions[0].records.push({ ...v.decisions[0].records[0], provider_usage: { input_tokens: 8, output_tokens: 3 } }),
-    v => v.decisions[0].records[0].session_id = 'foreign', v => v.decisions[0].source_sha256 = 'e'.repeat(64)]) {
+    v => v.decisions[0].records[0].session_id = 'foreign', v => v.decisions[0].source_sha256 = 'e'.repeat(64),
+    v => v.decisions[0].path = 'foreign.jsonl']) {
     const value = inputs(); mutate(value); const result = collect(value);
     assert.equal(result.known_lower_bound.jev_total_tokens, null); assert.equal(result.jev_usage.available, false);
     assert.equal(result.known_lower_bound.codex_total_tokens, 140);
   }
+});
+
+// A distinct abandoned query cannot erase independently verified consumption.
+test('task_usage_retains_known_billing_beside_unknown_attempts', () => {
+  const value = inputs();
+  value.decisions[0].records.push({ ...value.decisions[0].records[0], decision_id: 'abandoned', provider_usage: null });
+  const result = collect(value);
+  assert.equal(result.observed_providers.jev.available, false);
+  assert.equal(result.known_lower_bound.jev_total_tokens, 10);
+  value.decisions[0].records.push({ ...value.decisions[0].records[0], provider_usage: { input_tokens: 8, output_tokens: 3 } });
+  assert.equal(collect(value).known_lower_bound.jev_total_tokens, null, 'Conflicting copies exclude that entire decision identity');
 });
