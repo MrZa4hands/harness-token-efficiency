@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readPrivateTaskSnapshot, readTaskFileSnapshot, resolvePrivateTaskReference } from '../src/task-usage-transcript.mjs';
+import { readTaskFileSnapshot, resolvePrivateTaskReference, readTaskJsonlSnapshot,
+  createTaskReadBudget } from '../src/task-usage-transcript.mjs';
 import { fileURLToPath } from 'node:url';
 import { diagnosePilotEvidence } from '../src/pilot-evidence-diagnostics.mjs';
 
@@ -16,13 +17,15 @@ export async function loadPilotEvidenceDiagnostic(options) {
     const runPath = await resolvePrivateTaskReference(directory, basename(resolve(options.runs)));
     if (runPath !== resolve(options.runs)) throw new Error('Pilot evidence run reference rejected.');
     const annotationPath = await resolvePrivateTaskReference(directory, basename(resolve(options.assessments)));
-    const runSource = await readPrivateTaskSnapshot(runPath); const annotationSource = await readPrivateTaskSnapshot(annotationPath, 4_000_000, true);
+    const budget = createTaskReadBudget(), runSources = [], annotations = [];
+    const runSource = await readTaskJsonlSnapshot(runPath, { budget }, (row, run_row_sha256) => {
+      runSources.push({ row: { run_id: row?.run_id, task_id: row?.task_id, variant: row?.variant,
+        quality: { evidence_complete: row?.quality?.evidence_complete } }, run_row_sha256 });
+    });
+    const annotationSource = await readTaskJsonlSnapshot(annotationPath, { budget, allow_empty: true }, row => annotations.push(row));
     const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    const rows = decode(runSource.data).split('\n').filter(line => line.trim());
-    const runs = rows.map(line => ({ ...JSON.parse(line), run_row_sha256: createHash('sha256').update(Buffer.from(line)).digest('hex') }));
-    const annotations = decode(annotationSource.data).split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
     const tasks = decode(canonical).split('\n').filter(line => line.trim()).map(line => JSON.parse(line));
-    const result = diagnosePilotEvidence(tasks, runs, annotations);
+    const result = diagnosePilotEvidence(tasks, runSources, annotations);
     result.source_hashes = { corpus: createHash('sha256').update(canonical).digest('hex'),
       runs: runSource.source_sha256, assessments: annotationSource.source_sha256 };
     return result;

@@ -18,6 +18,46 @@ const assessment = (run, cause, kind) => ({ run_id: run.run_id, task_id: run.tas
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'evidence-diagnostics-')));
 after(() => assert.equal(spawnSync('trash', [root]).status, 0));
 
+// The source wrapper, not a mutable field in a parsed run, is the provenance authority.
+test('evidence_diagnostics_use_source_hashes_and_reconcile_unknown_subsets', () => {
+  const runs = ['accepted', 'missing', 'stale', 'conflict'].map(id => makeRun(id));
+  const sources = runs.map(row => ({ row, run_row_sha256: hash(JSON.stringify(row) + '\n') }));
+  const annotations = [assessment({ ...runs[0], run_row_sha256: sources[0].run_row_sha256 }, 'answer_omission', 'delivered_evidence'),
+    assessment(runs[2], 'answer_omission', 'delivered_evidence'),
+    assessment({ ...runs[3], run_row_sha256: sources[3].run_row_sha256 }, 'answer_omission', 'delivered_evidence'),
+    assessment({ ...runs[3], run_row_sha256: sources[3].run_row_sha256 }, 'selection_or_delivery', 'delivery_trace')];
+  const before = JSON.stringify(sources);
+  const result = diagnosePilotEvidence(tasks, sources, annotations);
+  assert.deepEqual(result.cause_counts, { selection_or_delivery: 0, answer_omission: 1, corpus_scope_mismatch: 0, unknown: 3 });
+  assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 3);
+  assert.equal(Object.values(result.cause_counts).reduce((a, b) => a + b, 0), 4);
+  assert.equal(JSON.stringify(sources), before);
+});
+
+// Whitespace and present LF/CRLF belong to each original row hash; final EOF does not invent LF.
+test('evidence_diagnostics_bind_annotations_to_exact_original_terminated_bytes', async () => {
+  const task = JSON.parse((await fs.readFile('evaluation/tasks.jsonl', 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('BYTE_PROVENANCE_PRIVATE'), task_id: task.task_id }; delete run.run_row_sha256;
+  const compact = JSON.stringify(run); const hashes = [];
+  for (const [index, bytes] of [compact + '\n', '  ' + compact + '  \n', compact + '\r\n', compact].entries()) {
+    const dir = join(root, 'terminator-' + index); await fs.mkdir(dir, { mode: 0o700 });
+    const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs'), assessments: join(dir, 'annotations') };
+    const annotation = { ...assessment({ ...run, run_row_sha256: hash(bytes) }, 'unknown', 'unverified'),
+      requirement_ids: [task.required_evidence[0]] };
+    await fs.writeFile(paths.runs, bytes, { mode: 0o600 });
+    await fs.writeFile(paths.assessments, JSON.stringify(annotation) + '\n', { mode: 0o600 });
+    const result = await loadPilotEvidenceDiagnostic(paths);
+    assert.equal(result.invalid_assessment_count, 0); assert.equal(result.details[0].annotation_accepted, true);
+    hashes.push(result.details[0].run_row_sha256);
+    annotation.run_row_sha256 = hash(compact + 'stale');
+    await fs.writeFile(paths.assessments, JSON.stringify(annotation));
+    const stale = await loadPilotEvidenceDiagnostic(paths);
+    assert.equal(stale.cause_counts.unknown, 1); assert.equal(stale.unassessed_attempt_count, 0);
+    assert.deepEqual(await fs.readFile(paths.runs), Buffer.from(bytes));
+  }
+  assert.equal(new Set(hashes).size, 4);
+});
+
 // Equal omission grades must not conflate failed delivery and a missing answer after verified delivery.
 test('evidence_diagnostics_distinguish_delivery_from_answer', () => {
   const runs = [makeRun('delivery', 'deterministic'), makeRun('answer', 'hybrid')];
@@ -68,7 +108,7 @@ test('evidence_diagnostics_cli_preserves_private_source_bytes', async () => {
   const line = '  ' + JSON.stringify(run) + '  '; const row = { ...run, run_row_sha256: hash(line) };
   const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs.jsonl'), assessments: join(dir, 'assessments.jsonl') };
   const actual = JSON.parse((await fs.readFile(paths.tasks, 'utf8')).split('\n')[0]); run.task_id = actual.task_id;
-  const actualLine = '  ' + JSON.stringify(run) + '  '; row.task_id = actual.task_id; row.run_row_sha256 = hash(actualLine);
+  const actualLine = '  ' + JSON.stringify(run) + '  '; row.task_id = actual.task_id; row.run_row_sha256 = hash(actualLine + '\n');
   const a = { ...assessment(row, 'unknown', 'unverified'), requirement_ids: [actual.required_evidence[0]] };
   await fs.writeFile(paths.runs, actualLine + '\n', { mode: 0o600 });
   await fs.writeFile(paths.assessments, JSON.stringify(a) + '\n', { mode: 0o600 });
