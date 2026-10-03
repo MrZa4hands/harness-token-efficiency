@@ -154,3 +154,18 @@ test('task_usage_cli_binds_each_decision_descriptor_to_its_own_bytes', async () 
   await fs.writeFile(path, JSON.stringify(manifest)); const result = invoke(path); assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stdout).observed_providers.jev.available, false);
 });
+
+// Crashes after file creation leave safe empty evidence, not a reason to erase other observations.
+test('task_usage_cli_preserves_root_lower_bound_with_empty_audit_or_worker', async () => {
+  const observed = [];
+  for (const name of ['empty-audit', 'empty-worker']) {
+    const { path, manifest, dir } = await rootFixture(name);
+    await fs.writeFile(join(dir, 'empty.jsonl'), '', { mode: 0o600 });
+    if (name === 'empty-audit') manifest.decisions.push({ path: 'empty.jsonl', sha256: sha('') });
+    else manifest.captures.push({ path: 'empty.jsonl', sha256: sha(''), thread_id: 'worker' });
+    await fs.writeFile(path, JSON.stringify(manifest)); const result = invoke(path); assert.equal(result.status, 1);
+    const output = JSON.parse(result.stdout); observed.push(output.known_lower_bound.codex_total_tokens);
+    assert.equal(output.task_coverage_verified, false); assert.equal(output.jev_usage.total_tokens, null);
+  }
+  assert.deepEqual(observed, [40, 40]);
+});

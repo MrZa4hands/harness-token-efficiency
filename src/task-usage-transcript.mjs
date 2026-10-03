@@ -42,7 +42,7 @@ async function taskSnapshotAncestors(path) {
 }
 
 /** Read a bounded task file snapshot; public corpus files still require stable regular descriptors and ancestors. */
-export async function readTaskFileSnapshot(path, byteLimit, requirePrivate = true) {
+export async function readTaskFileSnapshot(path, byteLimit, requirePrivate = true, allowEmpty = false) {
   let file;
   try {
     const ancestors = await taskSnapshotAncestors(path);
@@ -50,7 +50,7 @@ export async function readTaskFileSnapshot(path, byteLimit, requirePrivate = tru
     const before = await file.stat({ bigint: true });
     if (await taskSnapshotAncestors(path) !== ancestors || !before.isFile() ||
         requirePrivate && (before.uid !== BigInt(process.getuid()) || (before.mode & 0o077n) !== 0n) ||
-        before.size === 0n || before.size > BigInt(byteLimit)) throw new Error();
+        !allowEmpty && before.size === 0n || before.size > BigInt(byteLimit)) throw new Error();
     const size = Number(before.size); const data = Buffer.alloc(size); let offset = 0;
     while (offset < size) {
       const { bytesRead } = await file.read(data, offset, Math.min(65536, size - offset), offset);
@@ -64,9 +64,9 @@ export async function readTaskFileSnapshot(path, byteLimit, requirePrivate = tru
   finally { await file?.close(); }
 }
 
-/** Read a private task snapshot with owner-only permissions; bytes never enter error messages. */
-export async function readPrivateTaskSnapshot(path, byteLimit = 4_000_000) {
-  return readTaskFileSnapshot(path, byteLimit, true);
+/** Read a private task snapshot; optional safe empty evidence carries no inferred counters or attempts. */
+export async function readPrivateTaskSnapshot(path, byteLimit = 4_000_000, allowEmpty = false) {
+  return readTaskFileSnapshot(path, byteLimit, true, allowEmpty);
 }
 
 /** Read task-scoped native usage, excluding inherited responses; exhaustive worker/provider closure is unobservable. */
@@ -76,7 +76,7 @@ export async function readTaskUsageTranscript(path, options) {
   try {
     if (!options || options.client_version !== '0.159.2' ||
         !['thread_id', 'root_session_id', 'root_turn_id'].every(key => validIdentity(options[key]))) return unavailable;
-    const snapshot = await readPrivateTaskSnapshot(path, Math.min(64_000_000, options.byte_limit ?? 64_000_000));
+    const snapshot = await readPrivateTaskSnapshot(path, Math.min(64_000_000, options.byte_limit ?? 64_000_000), true);
     // Safe bytes still consume the input budget when their native records cannot be normalized.
     unavailable.snapshot_bytes = snapshot.snapshot_bytes; unavailable.source_sha256 = snapshot.source_sha256;
     const text = new TextDecoder('utf-8', { fatal: true }).decode(snapshot.data);

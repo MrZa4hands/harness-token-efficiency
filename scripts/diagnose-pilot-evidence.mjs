@@ -16,7 +16,7 @@ export async function loadPilotEvidenceDiagnostic(options) {
     const runPath = await resolvePrivateTaskReference(directory, basename(resolve(options.runs)));
     if (runPath !== resolve(options.runs)) throw new Error('Pilot evidence run reference rejected.');
     const annotationPath = await resolvePrivateTaskReference(directory, basename(resolve(options.assessments)));
-    const runSource = await readPrivateTaskSnapshot(runPath); const annotationSource = await readPrivateTaskSnapshot(annotationPath);
+    const runSource = await readPrivateTaskSnapshot(runPath); const annotationSource = await readPrivateTaskSnapshot(annotationPath, 4_000_000, true);
     const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     const rows = decode(runSource.data).split('\n').filter(line => line.trim());
     const runs = rows.map(line => ({ ...JSON.parse(line), run_row_sha256: createHash('sha256').update(Buffer.from(line)).digest('hex') }));

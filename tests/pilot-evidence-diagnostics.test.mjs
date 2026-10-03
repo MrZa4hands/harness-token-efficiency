@@ -115,3 +115,16 @@ test('evidence_diagnostics_handles_unknown_variant_without_prototype_access', ()
     assert.equal(Object.keys(result.variant_counts).length, 3);
   }
 });
+
+// No annotations yet must retain each omitted attempt as unknown and unassessed.
+test('evidence_diagnostics_accepts_empty_private_annotations', async () => {
+  const dir = join(root, 'empty-annotations'); await fs.mkdir(dir, { mode: 0o700 });
+  const paths = { tasks: resolve('evaluation/tasks.jsonl'), runs: join(dir, 'runs.jsonl'), assessments: join(dir, 'assessments.jsonl') };
+  const task = JSON.parse((await fs.readFile(paths.tasks, 'utf8')).split('\n')[0]);
+  const run = { ...makeRun('empty-annotations'), task_id: task.task_id, split: task.split };
+  await fs.writeFile(paths.runs, JSON.stringify(run) + '\n', { mode: 0o600 });
+  await fs.writeFile(paths.assessments, '', { mode: 0o600 });
+  const result = await loadPilotEvidenceDiagnostic(paths);
+  assert.equal(result.omission_attempt_count, 1); assert.equal(result.cause_counts.unknown, 1);
+  assert.equal(result.unassessed_attempt_count, 1); assert.equal(result.invalid_assessment_count, 0);
+});

@@ -37,7 +37,7 @@ export async function loadPrivateTaskMeasurement(manifestPath, captureByteLimit 
       const capture = await readTaskUsageTranscript(capturePaths[index], { client_version: manifest.client_version,
         thread_id: descriptor.thread_id, root_session_id: manifest.root_session_id, root_turn_id: manifest.root_turn_id,
         byte_limit: Math.min(64_000_000, captureByteLimit - snapshotBytes) });
-      if (!Number.isSafeInteger(capture.snapshot_bytes) || capture.snapshot_bytes < 1) {
+      if (!Number.isSafeInteger(capture.snapshot_bytes) || capture.snapshot_bytes < 0) {
         throw new Error('Task usage transcript snapshot or budget rejected.');
       }
       snapshotBytes += capture.snapshot_bytes; captures.push(capture);
@@ -46,7 +46,7 @@ export async function loadPrivateTaskMeasurement(manifestPath, captureByteLimit 
     for (const descriptor of manifest.decisions) {
       const decisionPath = await resolveOptionalTaskSource(directory, descriptor.path);
       if (!decisionPath) { decisions.push({ path: descriptor.path, source_sha256: null, records: null }); continue; }
-      const source = await readPrivateTaskSnapshot(decisionPath);
+      const source = await readPrivateTaskSnapshot(decisionPath, 4_000_000, true);
       let records;
       try {
         const text = new TextDecoder('utf-8', { fatal: true }).decode(source.data);
